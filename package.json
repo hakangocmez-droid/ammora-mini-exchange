@@ -1,0 +1,9 @@
+{
+  "name": "ammora-launchpad-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {"dev": "vite --host 0.0.0.0", "build": "vite build", "preview": "vite preview --host 0.0.0.0"},
+  "dependencies": {"@ammora-protocol/sdk": "0.3.9", "viem": "^2.38.5"},
+  "devDependencies": {"vite": "^6.4.1", "typescript": "~5.8.3"}
+}
