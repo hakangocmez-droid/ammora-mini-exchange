@@ -1,11 +1,36 @@
 import { AmmoraDataApiClient, giwaSepoliaAutoRouteDeployment, giwaSepoliaAutoRoute, resolveAmmoraFinalizedHead, verifyAmmoraV4CoreAtBlock, getAmmoraV4NextConfigId, getAmmoraV4ConfigAtBlock } from '@ammora-protocol/sdk';
-import { createPublicClient, defineChain, http } from 'viem';
+import { createPublicClient, custom, defineChain, http, type Transport } from 'viem';
 import './style.css';
 
 type LaunchRow = { name: string; symbol: string; address: string; status: string; raw: unknown };
 type ConfigRow = { configId: string; enabled: boolean; configHash: string; owner: string; feeClaimer: string; quoteToken: string; migrationMode: string; segments: number };
 const CHAIN_ID = 91342;
 const API_URL = 'https://ammora-giwa-sepolia-data.fly.dev';
+
+// GIWA's free public RPC is rate-limited. Serialize every SDK JSON-RPC request
+// instead of allowing bursts from parallel contract reads.
+function pacedHttp(url: string, intervalMs = 650): Transport {
+  const base = http(url, { retryCount: 0, timeout: 15_000 });
+  let tail: Promise<unknown> = Promise.resolve();
+  let nextStart = 0;
+  return (parameters) => {
+    const transport = base(parameters);
+    return custom({
+      request: (args) => {
+        const result = tail.then(async () => {
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, nextStart - Date.now())));
+          try {
+            return await transport.request(args);
+          } finally {
+            nextStart = Date.now() + intervalMs;
+          }
+        });
+        tail = result.catch(() => undefined);
+        return result;
+      },
+    }, { retryCount: 0 })(parameters);
+  };
+}
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let allLaunches: LaunchRow[] = [];
 let configs: ConfigRow[] = [];
@@ -121,7 +146,7 @@ async function ensureReadClient() {
       });
       const client = createPublicClient({
         chain: chainConfig,
-        transport: http(rpcUrl, { retryCount: 0, timeout: 8_000 }),
+        transport: pacedHttp(rpcUrl),
       });
       const actualChainId = await client.getChainId();
       if (actualChainId !== CHAIN_ID) {
@@ -162,7 +187,7 @@ async function loadConfigs() {
     const block = verifiedBlock!;
     const nextId = await getAmmoraV4NextConfigId(publicClient!, registry, block);
     const total = nextId > 1n ? nextId - 1n : 0n;
-    const count = Number(total > 20n ? 20n : total);
+    const count = Number(total > 10n ? 10n : total);
     configs = [];
     for (let i = 0; i < count; i++) {
       configs.push(await getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block));
@@ -173,11 +198,12 @@ async function loadConfigs() {
     if (blockLabel) blockLabel.textContent = `Finalized block #${block.toString()} · ${new URL(activeRpcUrl).host}`;
     renderConfigs();
   } catch (err: any) {
-    if (status) status.textContent = 'On-chain registry unavailable';
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">${esc(err?.shortMessage ?? err?.message ?? 'Read failed')}</td></tr>`;
+    const detail = err?.shortMessage ?? err?.message ?? String(err ?? 'Read failed');
+    if (status) status.textContent = 'On-chain registry unavailable · ' + detail;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">${esc(detail)}</td></tr>`;
     document.querySelector('#config-count')!.textContent = '—';
     document.querySelector('#rpc-state')!.textContent = 'Unavailable';
-    document.querySelector('#rpc-detail')!.textContent = err?.shortMessage ?? err?.message ?? 'RPC verification failed';
+    document.querySelector('#rpc-detail')!.textContent = (err?.shortMessage ?? err?.message ?? 'RPC verification failed').slice(0, 180);
   }
 }
 
