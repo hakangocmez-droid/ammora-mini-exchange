@@ -205,18 +205,22 @@ async function ensureReadClientInternal() {
 async function loadConfigs() {
   const status = document.querySelector('#config-status');
   const tbody = document.querySelector('#config-rows');
-  if (status) status.textContent = 'Verifying deployment and reading registry…';
+  if (status) status.textContent = 'Checking RPC and Ammora V4 deployment…';
   if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty">Read-only verification in progress…</td></tr>';
   try {
     await ensureReadClient();
+    if (status) status.textContent = `RPC online · V4 verified · reading registry at block ${verifiedBlock!.toString()}…`;
     const deployment = giwaSepoliaAutoRouteDeployment;
     const registry = deployment.contracts.launch.configRegistry;
     const block = verifiedBlock!;
+    if (status) status.textContent = 'Reading registered Config count…';
     const nextId = await withTimeout(getAmmoraV4NextConfigId(publicClient!, registry, block), 15_000, 'Config count read');
     const total = nextId > 1n ? nextId - 1n : 0n;
-    const count = Number(total > 5n ? 5n : total);
+    const count = Number(total > 3n ? 3n : total);
     configs = [];
+    if (status) status.textContent = `Found ${total} registered configs · loading first ${count}…`;
     for (let i = 0; i < count; i++) {
+      if (status) status.textContent = `Reading Config #${i + 1} of ${count}…`;
       configs.push(await withTimeout(
         getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block),
         18_000,
@@ -233,8 +237,15 @@ async function loadConfigs() {
     if (status) status.textContent = 'On-chain registry unavailable · ' + detail;
     if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">${esc(detail)}</td></tr>`;
     document.querySelector('#config-count')!.textContent = '—';
-    document.querySelector('#rpc-state')!.textContent = 'Unavailable';
-    document.querySelector('#rpc-detail')!.textContent = (err?.shortMessage ?? err?.message ?? 'RPC verification failed').slice(0, 180);
+    // Keep RPC health separate from registry-read failures. The RPC can be online
+    // and the V4 core verified even when a particular registry read times out.
+    if (verifiedBlock === undefined) {
+      document.querySelector('#rpc-state')!.textContent = 'Unavailable';
+      document.querySelector('#rpc-detail')!.textContent = (err?.shortMessage ?? err?.message ?? 'RPC verification failed').slice(0, 180);
+    } else {
+      document.querySelector('#rpc-state')!.textContent = 'Online';
+      document.querySelector('#rpc-detail')!.textContent = `V4 verified · ${new URL(activeRpcUrl).host}`;
+    }
   }
 }
 
