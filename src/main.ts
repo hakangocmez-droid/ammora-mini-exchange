@@ -3,7 +3,7 @@ import { createPublicClient, custom, defineChain, http, type Transport } from 'v
 import './style.css';
 
 type LaunchRow = { name: string; symbol: string; address: string; status: string; raw: unknown };
-type ConfigRow = { configId: string; enabled: boolean; configHash: string; owner: string; feeClaimer: string; quoteToken: string; migrationMode: string; segments: number };
+type ConfigRow = { configId: string; enabled: boolean; configHash: string; owner: string; feeClaimer: string; quoteToken: string; migrationMode: string; segments: number; details: unknown };
 const CHAIN_ID = 91342;
 const API_URL = 'https://ammora-giwa-sepolia-data.fly.dev';
 
@@ -119,6 +119,10 @@ function bind() {
   document.querySelector('#refresh')?.addEventListener('click', loadLaunches);
   document.querySelector('#refresh-configs')?.addEventListener('click', loadConfigs);
   document.querySelector('#load-more-configs')?.addEventListener('click', loadMoreConfigs);
+  document.querySelector('#config-rows')?.addEventListener('click', e => {
+    const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-config-details]');
+    if (button) toggleConfigDetails(button.dataset.configDetails || '');
+  });
   document.querySelector<HTMLInputElement>('#search')?.addEventListener('input', e => renderRows((e.target as HTMLInputElement).value));
   document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submit', e => {
     e.preventDefault();
@@ -272,6 +276,7 @@ async function loadConfigPage(startId: number) {
         quoteToken: String(entry.config?.quoteToken ?? ''),
         migrationMode: String(entry.config?.migrationMode ?? ''),
         segments: Array.isArray(entry.segments) ? entry.segments.length : 0,
+        details: { identity: entry.identity, config: entry.config, segments: entry.segments },
       });
     }
     renderConfigs();
@@ -291,6 +296,33 @@ async function loadMoreConfigs() {
   await loadConfigPage(configs.length + 1);
 }
 
+function flattenConfigDetails(value: unknown, prefix = ''): Array<[string, string]> {
+  if (value === null || value === undefined) return [[prefix || 'value', '—']];
+  if (typeof value === 'bigint') return [[prefix || 'value', value.toString()]];
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return [[prefix || 'value', String(value)]];
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return [[prefix || 'value', 'Empty list']];
+    return value.flatMap((item, index) => flattenConfigDetails(item, `${prefix}[${index}]`));
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (!entries.length) return [[prefix || 'value', 'Empty object']];
+    return entries.flatMap(([key, item]) => flattenConfigDetails(item, prefix ? `${prefix} · ${key}` : key));
+  }
+  return [[prefix || 'value', String(value)]];
+}
+
+function toggleConfigDetails(configId: string) {
+  const row = document.querySelector<HTMLTableRowElement>(`#config-detail-${CSS.escape(configId)}`);
+  if (row) {
+    row.hidden = !row.hidden;
+    const button = document.querySelector<HTMLButtonElement>(`[data-config-details="${CSS.escape(configId)}"]`);
+    if (button) button.textContent = row.hidden ? 'Details +' : 'Hide −';
+  }
+}
+
 function renderConfigs() {
   const tbody = document.querySelector<HTMLTableSectionElement>('#config-rows');
   if (!tbody) return;
@@ -301,7 +333,10 @@ function renderConfigs() {
   tbody.innerHTML = configs.map(c => {
     const quarantined = c.configId === '6';
     const state = quarantined ? 'Quarantined · Do not use' : c.enabled ? 'Enabled' : 'Disabled';
-    return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr>`;
+    const detailRows = flattenConfigDetails(c.details).map(([key, value]) =>
+      `<div class="config-detail-item"><span>${esc(key)}</span><code>${esc(value)}</code></div>`
+    ).join('');
+    return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="4"><div class="config-detail-grid">${detailRows}</div></td></tr>`;
   }).join('');
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
   if (button) button.disabled = configLoading || BigInt(configs.length) >= configTotal;
