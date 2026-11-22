@@ -1,14 +1,18 @@
-import { AmmoraDataApiClient, giwaSepoliaAutoRouteDeployment } from '@ammora-protocol/sdk';
+import { AmmoraDataApiClient, giwaSepoliaAutoRouteDeployment, giwaSepoliaAutoRoute, resolveAmmoraFinalizedHead, verifyAmmoraV4CoreAtBlock, getAmmoraV4NextConfigId, getAmmoraV4ConfigAtBlock } from '@ammora-protocol/sdk';
 import { createPublicClient, defineChain, http } from 'viem';
 import './style.css';
 
 type LaunchRow = { name: string; symbol: string; address: string; status: string; raw: unknown };
+type ConfigRow = { configId: string; enabled: boolean; configHash: string; owner: string; feeClaimer: string; quoteToken: string; migrationMode: string; segments: number };
 const CHAIN_ID = 91342;
 const API_URL = 'https://ammora-giwa-sepolia-data.fly.dev';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let allLaunches: LaunchRow[] = [];
+let configs: ConfigRow[] = [];
 let connectedAddress = '';
 let rpcStatus = 'Checking network';
+let publicClient: ReturnType<typeof createPublicClient> | undefined;
+let verifiedBlock: bigint | undefined;
 
 const short = (s: string) => s ? `${s.slice(0, 6)}…${s.slice(-4)}` : '—';
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -35,22 +39,27 @@ function render() {
       <section class="hero">
         <div class="eyebrow"><span class="pulse"></span> BUILT WITH AMMORA SDK 0.3.9</div>
         <h1>Launch ideas.<br><em>Build markets.</em></h1>
-        <p class="hero-copy">A focused launchpad workspace for GIWA Sepolia. Explore token launches, inspect market status and prepare a launch configuration — without risking real funds.</p>
+        <p class="hero-copy">A focused launchpad workspace for GIWA Sepolia. Read live on-chain launch configurations, inspect market status and prepare a launch brief — without risking real funds.</p>
         <div class="hero-meta"><span>NETWORK <b>GIWA SEPOLIA</b></span><span>CHAIN ID <b>${CHAIN_ID}</b></span><span>MODE <b>READ-ONLY / TESTNET</b></span></div>
       </section>
       <section class="stats-grid">
         <article class="stat-card"><span>SDK DEPLOYMENT</span><strong id="sdk-version">0.3.9</strong><small>Auto-route · V4 catalog</small></article>
-        <article class="stat-card"><span>DISCOVERED LAUNCHES</span><strong id="launch-count">—</strong><small>GIWA Sepolia index</small></article>
+        <article class="stat-card"><span>ON-CHAIN CONFIGS</span><strong id="config-count">—</strong><small>Verified GIWA Sepolia registry</small></article>
         <article class="stat-card"><span>WALLET</span><strong id="wallet-state">Not connected</strong><small id="wallet-detail">Connect only if you want to</small></article>
         <article class="stat-card"><span>RPC STATUS</span><strong id="rpc-state">Checking</strong><small id="rpc-detail">Public read endpoint</small></article>
       </section>
-      <section class="section-head"><div><div class="eyebrow">01 / MARKET DIRECTORY</div><h2>Explore launches</h2><p>Live launch records returned by Ammora's GIWA Sepolia Data API.</p></div><button id="refresh" class="outline-btn">↻ Refresh data</button></section>
+      <section class="section-head"><div><div class="eyebrow">01 / ON-CHAIN REGISTRY</div><h2>Verified launch configs</h2><p>Read directly from Ammora's GIWA Sepolia V4 registry at one finalized block. No Data API dependency.</p></div><button id="refresh-configs" class="outline-btn">↻ Read on-chain</button></section>
       <section class="directory-panel">
-        <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="search" placeholder="Search by token, symbol or address" /></div><span id="data-status" class="muted">Loading launches…</span></div>
+        <div class="directory-toolbar"><span id="config-status" class="muted">Checking deployment and registry…</span><span id="config-block" class="muted"></span></div>
+        <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
+      </section>
+      <section class="section-head"><div><div class="eyebrow">02 / OPTIONAL INDEX</div><h2>Explore launches</h2><p>Indexed launch records from Ammora's Data API. This service is separate from the on-chain registry.</p></div><button id="refresh" class="outline-btn">↻ Refresh data</button></section>
+      <section class="directory-panel">
+        <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="search" placeholder="Search by token, symbol or address" /></div><span id="data-status" class="muted">Optional index loading…</span></div>
         <div class="table-wrap"><table><thead><tr><th>PROJECT</th><th>TOKEN ADDRESS</th><th>STAGE</th><th></th></tr></thead><tbody id="launch-rows"><tr><td colspan="4" class="empty">Connecting to Ammora Data API…</td></tr></tbody></table></div>
       </section>
       <section class="builder-grid">
-        <div class="builder-intro"><div class="eyebrow">02 / LAUNCH CONFIGURATOR</div><h2>Shape your<br><em>next launch.</em></h2><p>Draft a launch brief and review the parameters before any wallet action. This first release intentionally does not submit transactions or spend test ETH.</p><div class="safety-note"><span>◎</span><div><b>Safe by default</b><small>No private keys, approvals or transactions are requested by this configurator.</small></div></div><div class="policy-note"><b>Protocol safety notice</b><small>Do not reuse the quarantined GIWA Registry Config #6. Ammora documents a graduation-readiness issue. Any future launch flow must select and independently verify a qualified Config first.</small></div></div>
+        <div class="builder-intro"><div class="eyebrow">03 / LAUNCH CONFIGURATOR</div><h2>Shape your<br><em>next launch.</em></h2><p>Draft a launch brief and review the parameters before any wallet action. This release does not submit transactions or spend test ETH.</p><div class="safety-note"><span>◎</span><div><b>Safe by default</b><small>No private keys, approvals or transactions are requested by this configurator.</small></div></div><div class="policy-note"><b>Protocol safety notice</b><small>Do not reuse the quarantined GIWA Registry Config #6. Select only an enabled config after reviewing its on-chain parameters and protocol guidance.</small></div></div>
         <form id="launch-form" class="form-panel">
           <div class="form-title"><div><span>NEW LAUNCH</span><h3>Configuration draft</h3></div><span class="draft-pill">LOCAL DRAFT</span></div>
           <label>Token name<input id="token-name" maxlength="32" placeholder="e.g. Aurora Protocol" required /></label>
@@ -70,6 +79,7 @@ function render() {
 function bind() {
   document.querySelector('#connect')?.addEventListener('click', connectWallet);
   document.querySelector('#refresh')?.addEventListener('click', loadLaunches);
+  document.querySelector('#refresh-configs')?.addEventListener('click', loadConfigs);
   document.querySelector<HTMLInputElement>('#search')?.addEventListener('input', e => renderRows((e.target as HTMLInputElement).value));
   document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submit', e => {
     e.preventDefault();
@@ -77,17 +87,83 @@ function bind() {
     const symbol = (document.querySelector<HTMLInputElement>('#token-symbol')!).value.trim().toUpperCase();
     const supply = (document.querySelector<HTMLInputElement>('#token-supply')!).value.trim();
     const desc = (document.querySelector<HTMLTextAreaElement>('#token-description')!).value.trim();
-    if (!name || !symbol || !/^\d+$/.test(supply) || BigInt(supply) <= 0n) { alert('Enter a token name, symbol and a positive whole-number supply.'); return; }
+    if (!name || !symbol || !/^\\d+$/.test(supply) || BigInt(supply) <= 0n) { alert('Enter a token name, symbol and a positive whole-number supply.'); return; }
     const out = document.querySelector<HTMLDivElement>('#draft-output')!;
     out.hidden = false;
-    out.innerHTML = `<div class="draft-label">LOCAL PREVIEW · NOT DEPLOYED</div><h4>${esc(name)} <span>${esc(symbol)}</span></h4><p>Total supply: <b>${Number(supply).toLocaleString('en-US')}</b></p><p>${esc(desc || 'No description provided.')}</p><small>Next engineering step: validate quote asset, fee recipients and launch parameters against the selected GIWA deployment before generating an unsigned SDK plan.</small>`;
+    out.innerHTML = `<div class="draft-label">LOCAL PREVIEW · NOT DEPLOYED</div><h4>${esc(name)} <span>${esc(symbol)}</span></h4><p>Total supply: <b>${BigInt(supply).toLocaleString('en-US')}</b></p><p>${esc(desc || 'No description provided.')}</p><small>This is a local brief only. No token or on-chain launch has been created.</small>`;
     out.scrollIntoView({behavior:'smooth', block:'nearest'});
   });
 }
 
+async function ensureReadClient() {
+  if (publicClient && verifiedBlock !== undefined) return;
+  const deployment = giwaSepoliaAutoRouteDeployment;
+  if (deployment.chain.id !== CHAIN_ID || deployment.contracts.launch.protocolVersion !== 4) throw new Error('Unexpected SDK deployment catalog');
+  const rpcUrl = deployment.chain.rpcUrls[0];
+  if (!rpcUrl) throw new Error('SDK deployment catalog has no public RPC URL');
+  const chainConfig = defineChain({ id: deployment.chain.id, name: deployment.chain.name, nativeCurrency: deployment.chain.nativeCurrency, rpcUrls: { default: { http: [rpcUrl] } } });
+  const client = createPublicClient({ chain: chainConfig, transport: http(rpcUrl, { retryCount: 0 }) });
+  const actualChainId = await client.getChainId();
+  if (actualChainId !== CHAIN_ID) throw new Error(`RPC chain mismatch: ${actualChainId}`);
+  const block = await resolveAmmoraFinalizedHead([client], giwaSepoliaAutoRoute.finality);
+  const registry = deployment.contracts.launch;
+  await verifyAmmoraV4CoreAtBlock(client, {
+    configRegistry: registry.configRegistry,
+    launchFactory: registry.factory,
+    graduationAdapter: registry.graduationAdapter,
+    feePolicy: registry.feePolicy,
+  }, block);
+  publicClient = client;
+  verifiedBlock = block;
+  rpcStatus = 'Online';
+  document.querySelector('#rpc-state')!.textContent = rpcStatus;
+  document.querySelector('#rpc-detail')!.textContent = 'GIWA Sepolia · chain + V4 core verified';
+}
+
+async function loadConfigs() {
+  const status = document.querySelector('#config-status');
+  const tbody = document.querySelector('#config-rows');
+  if (status) status.textContent = 'Verifying deployment and reading registry…';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty">Read-only verification in progress…</td></tr>';
+  try {
+    await ensureReadClient();
+    const deployment = giwaSepoliaAutoRouteDeployment;
+    const registry = deployment.contracts.launch.configRegistry;
+    const block = verifiedBlock!;
+    const nextId = await getAmmoraV4NextConfigId(publicClient!, registry, block);
+    const total = nextId > 1n ? nextId - 1n : 0n;
+    const count = Number(total > 20n ? 20n : total);
+    configs = [];
+    for (let i = 0; i < count; i++) {
+      configs.push(await getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block));
+    }
+    document.querySelector('#config-count')!.textContent = String(total);
+    if (status) status.textContent = `Verified V4 registry · showing ${count} of ${total} configs`;
+    const blockLabel = document.querySelector('#config-block');
+    if (blockLabel) blockLabel.textContent = `Finalized block #${block.toString()}`;
+    renderConfigs();
+  } catch (err: any) {
+    if (status) status.textContent = 'On-chain registry unavailable';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">${esc(err?.shortMessage ?? err?.message ?? 'Read failed')}</td></tr>`;
+    document.querySelector('#config-count')!.textContent = '—';
+    document.querySelector('#rpc-state')!.textContent = 'Unavailable';
+    document.querySelector('#rpc-detail')!.textContent = err?.shortMessage ?? err?.message ?? 'RPC verification failed';
+  }
+}
+
+function renderConfigs() {
+  const tbody = document.querySelector<HTMLTableSectionElement>('#config-rows');
+  if (!tbody) return;
+  if (!configs.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No registered configs were found at the verified block.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = configs.map(c => `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${c.enabled ? 'Enabled' : 'Disabled'}</span></td></tr>`).join('');
+}
+
 async function connectWallet() {
   const eth = (window as any).ethereum;
-  if (!eth) { alert('No EVM wallet detected. You can still use the launch directory and configurator without connecting.'); return; }
+  if (!eth) { alert('No EVM wallet detected. You can still use the on-chain directory and configurator without connecting.'); return; }
   try {
     const accounts = await eth.request({ method: 'eth_requestAccounts' });
     const chainHex = await eth.request({ method: 'eth_chainId' });
@@ -127,32 +203,22 @@ async function loadLaunches() {
     const api = new AmmoraDataApiClient(API_URL);
     const result = await api.getLaunches({ chainId: BigInt(CHAIN_ID) });
     allLaunches = toRows(result);
-    document.querySelector('#launch-count')!.textContent = String(allLaunches.length);
-    if (status) status.textContent = `Updated ${new Date().toLocaleTimeString()} · ${allLaunches.length} records`;
     renderRows((document.querySelector<HTMLInputElement>('#search')?.value) ?? '');
+    if (status) status.textContent = `Updated ${new Date().toLocaleTimeString()} · ${allLaunches.length} records`;
   } catch (err: any) {
-    if (status) status.textContent = 'Data API unavailable — retry later';
+    if (status) status.textContent = 'Data API unavailable — on-chain configs remain available above';
     const tbody = document.querySelector('#launch-rows');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">Could not load the index. ${esc(err?.message ?? 'Network error')}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">Optional index unavailable: ${esc(err?.shortMessage ?? err?.message ?? 'Network error')}</td></tr>`;
   }
 }
 
 async function checkRpc() {
   try {
-    const deployment = giwaSepoliaAutoRouteDeployment;
-    if (deployment.chain.id !== CHAIN_ID) throw new Error('Unexpected SDK chain catalog');
-    if (deployment.contracts.launch.protocolVersion !== 4) throw new Error('Unexpected launch protocol version');
-    const rpcUrl = deployment.chain.rpcUrls[0];
-    if (!rpcUrl) throw new Error('SDK deployment catalog has no public RPC URL');
-    const chainConfig = defineChain({ id: deployment.chain.id, name: deployment.chain.name, nativeCurrency: deployment.chain.nativeCurrency, rpcUrls: { default: { http: [rpcUrl] } } });
-    const client = createPublicClient({ chain: chainConfig, transport: http(rpcUrl) });
-    const actualChainId = await client.getChainId();
-    rpcStatus = actualChainId === CHAIN_ID ? 'Online' : `Chain ${actualChainId}`;
-    document.querySelector('#rpc-state')!.textContent = rpcStatus;
-    document.querySelector('#rpc-detail')!.textContent = 'GIWA Sepolia RPC · read-only';
+    await ensureReadClient();
+    await loadConfigs();
   } catch (err: any) {
     document.querySelector('#rpc-state')!.textContent = 'Unavailable';
-    document.querySelector('#rpc-detail')!.textContent = err?.message ?? 'Could not verify RPC';
+    document.querySelector('#rpc-detail')!.textContent = err?.shortMessage ?? err?.message ?? 'Could not verify RPC';
   }
 }
 
