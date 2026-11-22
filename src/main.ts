@@ -221,11 +221,22 @@ async function loadConfigs() {
     if (status) status.textContent = `Found ${total} registered configs · loading first ${count}…`;
     for (let i = 0; i < count; i++) {
       if (status) status.textContent = `Reading Config #${i + 1} of ${count}…`;
-      configs.push(await withTimeout(
+      const entry: any = await withTimeout(
         getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block),
         18_000,
         `Config #${i + 1} read`,
-      ));
+      );
+      // SDK V4 returns identity/config as nested records; normalize them for the UI.
+      configs.push({
+        configId: String(entry.configId ?? i + 1),
+        enabled: Boolean(entry.enabled),
+        configHash: String(entry.configHash ?? ''),
+        owner: String(entry.identity?.owner ?? ''),
+        feeClaimer: String(entry.identity?.feeClaimer ?? ''),
+        quoteToken: String(entry.config?.quoteToken ?? ''),
+        migrationMode: String(entry.config?.migrationMode ?? ''),
+        segments: Array.isArray(entry.segments) ? entry.segments.length : 0,
+      });
     }
     document.querySelector('#config-count')!.textContent = String(total);
     if (status) status.textContent = `Verified V4 registry · showing ${count} of ${total} configs`;
