@@ -13,6 +13,7 @@ let connectedAddress = '';
 let rpcStatus = 'Checking network';
 let publicClient: ReturnType<typeof createPublicClient> | undefined;
 let verifiedBlock: bigint | undefined;
+let activeRpcUrl = '';
 
 const short = (s: string) => s ? `${s.slice(0, 6)}…${s.slice(-4)}` : '—';
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -98,28 +99,57 @@ function bind() {
 async function ensureReadClient() {
   if (publicClient && verifiedBlock !== undefined) return;
   const deployment = giwaSepoliaAutoRouteDeployment;
-  if (deployment.chain.id !== CHAIN_ID || deployment.contracts.launch.protocolVersion !== 4) throw new Error('Unexpected SDK deployment catalog');
-  const rpcUrl = deployment.chain.rpcUrls[0];
-  if (!rpcUrl) throw new Error('SDK deployment catalog has no public RPC URL');
-  const chainConfig = defineChain({ id: deployment.chain.id, name: deployment.chain.name, nativeCurrency: deployment.chain.nativeCurrency, rpcUrls: { default: { http: [rpcUrl] } } });
-  const client = createPublicClient({ chain: chainConfig, transport: http(rpcUrl, { retryCount: 0 }) });
-  const actualChainId = await client.getChainId();
-  if (actualChainId !== CHAIN_ID) throw new Error(`RPC chain mismatch: ${actualChainId}`);
-  const block = await resolveAmmoraFinalizedHead([client], giwaSepoliaAutoRoute.finality);
-  const registry = deployment.contracts.launch;
-  await verifyAmmoraV4CoreAtBlock(client, {
-    configRegistry: registry.configRegistry,
-    launchFactory: registry.factory,
-    graduationAdapter: registry.graduationAdapter,
-    feePolicy: registry.feePolicy,
-  }, block);
-  publicClient = client;
-  verifiedBlock = block;
-  rpcStatus = 'Online';
-  document.querySelector('#rpc-state')!.textContent = rpcStatus;
-  document.querySelector('#rpc-detail')!.textContent = 'GIWA Sepolia · chain + V4 core verified';
-}
+  if (deployment.chain.id !== CHAIN_ID || deployment.contracts.launch.protocolVersion !== 4) {
+    throw new Error('Unexpected SDK deployment catalog');
+  }
 
+  // Prefer the SDK catalog endpoint, then try GIWA's documented public endpoints.
+  const candidates = [...new Set([
+    deployment.chain.rpcUrls[0],
+    'https://sepolia-rpc.giwa.io',
+    'https://sepolia-rpc-flashblocks.giwa.io',
+  ].filter((url): url is string => Boolean(url)))];
+
+  const failures: string[] = [];
+  for (const rpcUrl of candidates) {
+    try {
+      const chainConfig = defineChain({
+        id: deployment.chain.id,
+        name: deployment.chain.name,
+        nativeCurrency: deployment.chain.nativeCurrency,
+        rpcUrls: { default: { http: [rpcUrl] } },
+      });
+      const client = createPublicClient({
+        chain: chainConfig,
+        transport: http(rpcUrl, { retryCount: 0, timeout: 8_000 }),
+      });
+      const actualChainId = await client.getChainId();
+      if (actualChainId !== CHAIN_ID) {
+        throw new Error(`RPC chain mismatch: expected ${CHAIN_ID}, received ${actualChainId}`);
+      }
+
+      const block = await resolveAmmoraFinalizedHead([client], giwaSepoliaAutoRoute.finality);
+      const registry = deployment.contracts.launch;
+      await verifyAmmoraV4CoreAtBlock(client, {
+        configRegistry: registry.configRegistry,
+        launchFactory: registry.factory,
+        graduationAdapter: registry.graduationAdapter,
+        feePolicy: registry.feePolicy,
+      }, block);
+
+      publicClient = client;
+      verifiedBlock = block;
+      activeRpcUrl = rpcUrl;
+      rpcStatus = 'Online';
+      document.querySelector('#rpc-state')!.textContent = rpcStatus;
+      document.querySelector('#rpc-detail')!.textContent = `V4 verified · ${new URL(rpcUrl).host}`;
+      return;
+    } catch (err: any) {
+      failures.push(`${new URL(rpcUrl).host}: ${err?.shortMessage ?? err?.message ?? 'RPC request failed'}`);
+    }
+  }
+  throw new Error(`All GIWA RPC endpoints failed. ${failures.join(' | ')}`);
+}
 async function loadConfigs() {
   const status = document.querySelector('#config-status');
   const tbody = document.querySelector('#config-rows');
@@ -140,7 +170,7 @@ async function loadConfigs() {
     document.querySelector('#config-count')!.textContent = String(total);
     if (status) status.textContent = `Verified V4 registry · showing ${count} of ${total} configs`;
     const blockLabel = document.querySelector('#config-block');
-    if (blockLabel) blockLabel.textContent = `Finalized block #${block.toString()}`;
+    if (blockLabel) blockLabel.textContent = `Finalized block #${block.toString()} · ${new URL(activeRpcUrl).host}`;
     renderConfigs();
   } catch (err: any) {
     if (status) status.textContent = 'On-chain registry unavailable';
