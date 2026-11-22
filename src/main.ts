@@ -39,6 +39,14 @@ let rpcStatus = 'Checking network';
 let publicClient: ReturnType<typeof createPublicClient> | undefined;
 let verifiedBlock: bigint | undefined;
 let activeRpcUrl = '';
+let readClientPromise: Promise<void> | undefined;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms)),
+  ]);
+}
 
 const short = (s: string) => s ? `${s.slice(0, 6)}…${s.slice(-4)}` : '—';
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -123,6 +131,16 @@ function bind() {
 
 async function ensureReadClient() {
   if (publicClient && verifiedBlock !== undefined) return;
+  if (readClientPromise) return readClientPromise;
+  readClientPromise = ensureReadClientInternal();
+  try {
+    await readClientPromise;
+  } finally {
+    readClientPromise = undefined;
+  }
+}
+
+async function ensureReadClientInternal() {
   const deployment = giwaSepoliaAutoRouteDeployment;
   if (deployment.chain.id !== CHAIN_ID || deployment.contracts.launch.protocolVersion !== 4) {
     throw new Error('Unexpected SDK deployment catalog');
@@ -137,6 +155,11 @@ async function ensureReadClient() {
 
   const failures: string[] = [];
   for (const rpcUrl of candidates) {
+    const host = new URL(rpcUrl).host;
+    const status = document.querySelector('#config-status');
+    if (status) status.textContent = `Connecting to ${host}…`;
+    document.querySelector('#rpc-state')!.textContent = 'Connecting';
+    document.querySelector('#rpc-detail')!.textContent = host;
     try {
       const chainConfig = defineChain({
         id: deployment.chain.id,
@@ -148,19 +171,23 @@ async function ensureReadClient() {
         chain: chainConfig,
         transport: pacedHttp(rpcUrl),
       });
-      const actualChainId = await client.getChainId();
+      const actualChainId = await withTimeout(client.getChainId(), 12_000, `${host} chain check`);
       if (actualChainId !== CHAIN_ID) {
         throw new Error(`RPC chain mismatch: expected ${CHAIN_ID}, received ${actualChainId}`);
       }
 
-      const block = await resolveAmmoraFinalizedHead([client], giwaSepoliaAutoRoute.finality);
+      const block = await withTimeout(
+        resolveAmmoraFinalizedHead([client], giwaSepoliaAutoRoute.finality),
+        25_000,
+        `${host} finalized-head lookup`,
+      );
       const registry = deployment.contracts.launch;
-      await verifyAmmoraV4CoreAtBlock(client, {
+      await withTimeout(verifyAmmoraV4CoreAtBlock(client, {
         configRegistry: registry.configRegistry,
         launchFactory: registry.factory,
         graduationAdapter: registry.graduationAdapter,
         feePolicy: registry.feePolicy,
-      }, block);
+      }, block), 25_000, `${host} V4 verification`);
 
       publicClient = client;
       verifiedBlock = block;
@@ -185,12 +212,16 @@ async function loadConfigs() {
     const deployment = giwaSepoliaAutoRouteDeployment;
     const registry = deployment.contracts.launch.configRegistry;
     const block = verifiedBlock!;
-    const nextId = await getAmmoraV4NextConfigId(publicClient!, registry, block);
+    const nextId = await withTimeout(getAmmoraV4NextConfigId(publicClient!, registry, block), 15_000, 'Config count read');
     const total = nextId > 1n ? nextId - 1n : 0n;
-    const count = Number(total > 10n ? 10n : total);
+    const count = Number(total > 5n ? 5n : total);
     configs = [];
     for (let i = 0; i < count; i++) {
-      configs.push(await getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block));
+      configs.push(await withTimeout(
+        getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block),
+        18_000,
+        `Config #${i + 1} read`,
+      ));
     }
     document.querySelector('#config-count')!.textContent = String(total);
     if (status) status.textContent = `Verified V4 registry · showing ${count} of ${total} configs`;
@@ -257,7 +288,7 @@ async function loadLaunches() {
   if (status) status.textContent = 'Refreshing…';
   try {
     const api = new AmmoraDataApiClient(API_URL);
-    const result = await api.getLaunches({ chainId: BigInt(CHAIN_ID) });
+    const result = await withTimeout(api.getLaunches({ chainId: BigInt(CHAIN_ID) }), 12_000, 'Ammora Data API');
     allLaunches = toRows(result);
     renderRows((document.querySelector<HTMLInputElement>('#search')?.value) ?? '');
     if (status) status.textContent = `Updated ${new Date().toLocaleTimeString()} · ${allLaunches.length} records`;
