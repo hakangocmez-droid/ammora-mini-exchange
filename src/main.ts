@@ -34,6 +34,9 @@ function pacedHttp(url: string, intervalMs = 650): Transport {
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let allLaunches: LaunchRow[] = [];
 let configs: ConfigRow[] = [];
+let configTotal = 0n;
+let configPageSize = 5;
+let configLoading = false;
 let connectedAddress = '';
 let rpcStatus = 'Checking network';
 let publicClient: ReturnType<typeof createPublicClient> | undefined;
@@ -86,6 +89,7 @@ function render() {
       <section class="directory-panel">
         <div class="directory-toolbar"><span id="config-status" class="muted">Checking deployment and registry…</span><span id="config-block" class="muted"></span></div>
         <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
+        <div class="directory-toolbar"><span id="config-page-status" class="muted">First 5 of the verified registry configs</span><button id="load-more-configs" class="outline-btn" disabled>Load next 5</button></div>
       </section>
       <section class="section-head"><div><div class="eyebrow">02 / OPTIONAL INDEX</div><h2>Explore launches</h2><p>Indexed launch records from Ammora's Data API. This service is separate from the on-chain registry.</p></div><button id="refresh" class="outline-btn">↻ Refresh data</button></section>
       <section class="directory-panel">
@@ -114,6 +118,7 @@ function bind() {
   document.querySelector('#connect')?.addEventListener('click', connectWallet);
   document.querySelector('#refresh')?.addEventListener('click', loadLaunches);
   document.querySelector('#refresh-configs')?.addEventListener('click', loadConfigs);
+  document.querySelector('#load-more-configs')?.addEventListener('click', loadMoreConfigs);
   document.querySelector<HTMLInputElement>('#search')?.addEventListener('input', e => renderRows((e.target as HTMLInputElement).value));
   document.querySelector<HTMLFormElement>('#launch-form')?.addEventListener('submit', e => {
     e.preventDefault();
@@ -215,31 +220,12 @@ async function loadConfigs() {
     const block = verifiedBlock!;
     if (status) status.textContent = 'Reading registered Config count…';
     const nextId = await withTimeout(getAmmoraV4NextConfigId(publicClient!, registry, block), 15_000, 'Config count read');
-    const total = nextId > 1n ? nextId - 1n : 0n;
-    const count = Number(total > 3n ? 3n : total);
+    configTotal = nextId > 1n ? nextId - 1n : 0n;
     configs = [];
-    if (status) status.textContent = `Found ${total} registered configs · loading first ${count}…`;
-    for (let i = 0; i < count; i++) {
-      if (status) status.textContent = `Reading Config #${i + 1} of ${count}…`;
-      const entry: any = await withTimeout(
-        getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(i + 1), block),
-        18_000,
-        `Config #${i + 1} read`,
-      );
-      // SDK V4 returns identity/config as nested records; normalize them for the UI.
-      configs.push({
-        configId: String(entry.configId ?? i + 1),
-        enabled: Boolean(entry.enabled),
-        configHash: String(entry.configHash ?? ''),
-        owner: String(entry.identity?.owner ?? ''),
-        feeClaimer: String(entry.identity?.feeClaimer ?? ''),
-        quoteToken: String(entry.config?.quoteToken ?? ''),
-        migrationMode: String(entry.config?.migrationMode ?? ''),
-        segments: Array.isArray(entry.segments) ? entry.segments.length : 0,
-      });
-    }
-    document.querySelector('#config-count')!.textContent = String(total);
-    if (status) status.textContent = `Verified V4 registry · showing ${count} of ${total} configs`;
+    if (status) status.textContent = `Found ${configTotal} registered configs · loading first page…`;
+    await loadConfigPage(1);
+    document.querySelector('#config-count')!.textContent = String(configTotal);
+    if (status) status.textContent = `Verified V4 registry · showing ${configs.length} of ${configTotal} configs`;
     const blockLabel = document.querySelector('#config-block');
     if (blockLabel) blockLabel.textContent = `Finalized block #${block.toString()} · ${new URL(activeRpcUrl).host}`;
     renderConfigs();
@@ -260,6 +246,51 @@ async function loadConfigs() {
   }
 }
 
+async function loadConfigPage(startId: number) {
+  if (configLoading) return;
+  configLoading = true;
+  const status = document.querySelector('#config-status');
+  const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
+  if (button) button.disabled = true;
+  try {
+    const registry = giwaSepoliaAutoRouteDeployment.contracts.launch.configRegistry;
+    const block = verifiedBlock!;
+    const endId = Math.min(Number(configTotal), startId + configPageSize - 1);
+    for (let id = startId; id <= endId; id++) {
+      if (status) status.textContent = `Reading Config #${id} of ${configTotal}…`;
+      const entry: any = await withTimeout(
+        getAmmoraV4ConfigAtBlock(publicClient!, registry, BigInt(id), block),
+        18_000,
+        `Config #${id} read`,
+      );
+      configs.push({
+        configId: String(entry.configId ?? id),
+        enabled: Boolean(entry.enabled),
+        configHash: String(entry.configHash ?? ''),
+        owner: String(entry.identity?.owner ?? ''),
+        feeClaimer: String(entry.identity?.feeClaimer ?? ''),
+        quoteToken: String(entry.config?.quoteToken ?? ''),
+        migrationMode: String(entry.config?.migrationMode ?? ''),
+        segments: Array.isArray(entry.segments) ? entry.segments.length : 0,
+      });
+    }
+    renderConfigs();
+    if (status) status.textContent = `Verified V4 registry · showing ${configs.length} of ${configTotal} configs`;
+    const pageStatus = document.querySelector('#config-page-status');
+    if (pageStatus) pageStatus.textContent = `Showing ${configs.length} of ${configTotal} verified configs`;
+  } catch (err: any) {
+    if (status) status.textContent = err?.shortMessage ?? err?.message ?? 'Config page read failed';
+  } finally {
+    configLoading = false;
+    if (button) button.disabled = BigInt(configs.length) >= configTotal;
+  }
+}
+
+async function loadMoreConfigs() {
+  if (BigInt(configs.length) >= configTotal) return;
+  await loadConfigPage(configs.length + 1);
+}
+
 function renderConfigs() {
   const tbody = document.querySelector<HTMLTableSectionElement>('#config-rows');
   if (!tbody) return;
@@ -267,7 +298,15 @@ function renderConfigs() {
     tbody.innerHTML = '<tr><td colspan="4" class="empty">No registered configs were found at the verified block.</td></tr>';
     return;
   }
-  tbody.innerHTML = configs.map(c => `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${c.enabled ? 'Enabled' : 'Disabled'}</span></td></tr>`).join('');
+  tbody.innerHTML = configs.map(c => {
+    const quarantined = c.configId === '6';
+    const state = quarantined ? 'Quarantined · Do not use' : c.enabled ? 'Enabled' : 'Disabled';
+    return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr>`;
+  }).join('');
+  const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
+  if (button) button.disabled = configLoading || BigInt(configs.length) >= configTotal;
+  const pageStatus = document.querySelector('#config-page-status');
+  if (pageStatus) pageStatus.textContent = `Showing ${configs.length} of ${configTotal} verified configs`;
 }
 
 async function connectWallet() {
