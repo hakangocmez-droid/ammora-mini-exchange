@@ -72,7 +72,7 @@ function render() {
   <div class="shell">
     <header class="topbar">
       <a class="brand" href="#top"><span class="brand-mark">A</span><span>AMMORA<span class="brand-sub">LAUNCHPAD STUDIO</span></span></a>
-      <div class="top-actions"><span class="network"><i></i> GIWA SEPOLIA · ${CHAIN_ID}</span><button id="connect" class="wallet-btn">${connectedAddress ? short(connectedAddress) : 'Connect wallet'}</button></div>
+      <div class="top-actions"><span class="network"><i></i> GIWA SEPOLIA · ${CHAIN_ID}</span></div>
     </header>
     <main id="top">
       <section class="hero">
@@ -84,7 +84,7 @@ function render() {
       <section class="stats-grid">
         <article class="stat-card"><span>SDK DEPLOYMENT</span><strong id="sdk-version">0.3.9</strong><small>Auto-route · V4 catalog</small></article>
         <article class="stat-card"><span>ON-CHAIN CONFIGS</span><strong id="config-count">—</strong><small>Verified GIWA Sepolia registry</small></article>
-        <article class="stat-card"><span>WALLET</span><strong id="wallet-state">Not connected</strong><small id="wallet-detail">Connect only if you want to</small></article>
+        
         <article class="stat-card"><span>RPC STATUS</span><strong id="rpc-state">Checking</strong><small id="rpc-detail">Public read endpoint</small></article>
       </section>
       <section class="section-head"><div><div class="eyebrow">01 / ON-CHAIN REGISTRY</div><h2>Verified launch configs</h2><p>Read directly from Ammora's GIWA Sepolia V4 registry at one finalized block. No Data API dependency.</p></div><button id="refresh-configs" class="outline-btn">↻ Read on-chain</button></section>
@@ -92,27 +92,20 @@ function render() {
         <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="config-search" placeholder="Search loaded configs, owner or token address" /></div><select id="config-filter" class="config-filter" aria-label="Filter configs"><option value="all">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="quarantined">Quarantined</option></select></div>
         <div class="directory-toolbar"><div class="search-wrap"><span>#</span><input id="config-id-lookup" type="number" min="1" placeholder="Jump to any Config ID (e.g. 72)" /></div><button id="lookup-config" class="outline-btn">Lookup Config</button></div>
         <div class="directory-toolbar"><span id="config-status" class="muted">Checking deployment and registry…</span><span id="config-block" class="muted"></span></div>
-        <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th><th>COMPARE</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
-        <div id="config-comparison" class="comparison-panel"><p class="comparison-empty">Select up to two enabled Configs to compare their on-chain parameters and risk flags.</p></div>
+        <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
         <div class="directory-toolbar"><span id="config-page-status" class="muted">First 5 of the verified registry configs</span><button id="load-more-configs" class="outline-btn" disabled>Load next 5</button></div>
-      </section>
-      <section class="section-head"><div><div class="eyebrow">02 / OPTIONAL INDEX</div><h2>Explore launches</h2><p>Indexed launch records from Ammora's Data API. This service is separate from the on-chain registry.</p></div><button id="refresh" class="outline-btn">↻ Refresh data</button></section>
-      <section class="directory-panel">
-        <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="search" placeholder="Search by token, symbol or address" /></div><span id="data-status" class="muted">Optional index loading…</span></div>
-        <div class="table-wrap"><table><thead><tr><th>PROJECT</th><th>TOKEN ADDRESS</th><th>STAGE</th><th></th></tr></thead><tbody id="launch-rows"><tr><td colspan="4" class="empty">Connecting to Ammora Data API…</td></tr></tbody></table></div>
       </section>
       <section class="builder-grid">
         <div class="builder-intro"><div class="eyebrow">03 / LAUNCH CONFIGURATOR</div><h2>Shape your<br><em>next launch.</em></h2><p>Draft a launch brief and review the parameters before any wallet action. This release does not submit transactions or spend test ETH.</p><div class="safety-note"><span>◎</span><div><b>Safe by default</b><small>No private keys, approvals or transactions are requested by this configurator.</small></div></div><div class="policy-note"><b>Protocol safety notice</b><small>Do not reuse the quarantined GIWA Registry Config #6. Select only an enabled config after reviewing its on-chain parameters and protocol guidance.</small></div></div>
         <form id="launch-form" class="form-panel">
           <div class="form-title"><div><span>NEW LAUNCH</span><h3>Configuration draft</h3></div><span class="draft-pill">LOCAL DRAFT</span></div>
-          <div class="studio-toolbar"><label>Load template<select id="draft-template"><option value="blank">Blank launch draft</option><option value="fixed">Fixed-supply community token</option></select></label><label>Saved drafts<select id="saved-drafts"><option value="">Choose a saved draft</option></select></label><button id="load-draft" class="outline-btn" type="button">Load</button></div>
           <label>Token name<input id="token-name" maxlength="32" placeholder="e.g. Aurora Protocol" required /></label>
           <div class="two-col"><label>Token symbol<input id="token-symbol" maxlength="10" placeholder="AURA" required /></label><label>Token supply<input id="token-supply" inputmode="numeric" placeholder="1000000000" required /></label></div>
-          <label>Registry Config<select id="draft-config"><option value="">Load configs first · choose an enabled Config</option></select><small class="field-hint">Config #6 is permanently excluded. Enabled does not mean safety-certified; review the full on-chain details before using a Config.</small></label>
+          <div class="selected-config-note" id="selected-config-note">Waiting for registry…</div><select id="draft-config" hidden><option value="">No eligible Config</option></select><label hidden>Registry Config<select id="draft-config-unused"><option value="">Load configs first · choose an enabled Config</option></select><small class="field-hint">Config #6 is permanently excluded. Enabled does not mean safety-certified; review the full on-chain details before using a Config.</small></label>
           <label>Project description<textarea id="token-description" maxlength="240" rows="3" placeholder="What is this project building?"></textarea></label>
           <div class="form-foot"><span>Local browser draft · no chain writes</span><div class="form-actions"><button id="save-draft" class="outline-btn" type="button">Save draft</button><button class="primary-btn" type="submit">Validate & preview ↗</button></div></div>
           <div id="draft-validation" class="validation-list" aria-live="polite"></div>
-          <div class="sdk-preview-panel">
+          <details class="sdk-preview-panel"><summary>Advanced · SDK economics preview (optional)</summary>
             <div class="form-title"><div><span>SDK 0.3.9 · READ-ONLY</span><h3>Config economics preview</h3></div><span class="draft-pill">NO TRANSACTION</span></div>
             <p class="field-hint">Uses a loaded enabled Config as a template. Sale supply and quote threshold must be raw integer units using the template token and quote-token decimals.</p>
             <div class="two-col"><label>Template Config ID<input id="preview-template-id" inputmode="numeric" placeholder="e.g. 72" /></label><label>Sale supply (raw units)<input id="preview-sale-supply" inputmode="numeric" placeholder="e.g. 1000000000000" /></label></div>
@@ -120,7 +113,7 @@ function render() {
             <button id="run-sdk-preview" class="primary-btn" type="button">Derive & validate with SDK ↗</button>
             <div id="sdk-preview-status" class="validation-list" aria-live="polite"></div>
             <pre id="sdk-preview-output" class="sdk-preview-output" hidden></pre>
-          </div>
+          </details>
           <div id="draft-output" class="draft-output" hidden></div>
         </form>
       </section>
@@ -132,8 +125,6 @@ function render() {
 }
 
 function bind() {
-  document.querySelector('#connect')?.addEventListener('click', connectWallet);
-  document.querySelector('#refresh')?.addEventListener('click', loadLaunches);
   document.querySelector('#refresh-configs')?.addEventListener('click', loadConfigs);
   document.querySelector('#load-more-configs')?.addEventListener('click', loadMoreConfigs);
   document.querySelector('#lookup-config')?.addEventListener('click', loadConfigById);
@@ -142,14 +133,9 @@ function bind() {
   });
   document.querySelector<HTMLInputElement>('#config-search')?.addEventListener('input', renderConfigs);
   document.querySelector<HTMLSelectElement>('#config-filter')?.addEventListener('change', renderConfigs);
-  document.querySelector<HTMLSelectElement>('#draft-template')?.addEventListener('change', applyDraftTemplate);
-  document.querySelector<HTMLButtonElement>('#save-draft')?.addEventListener('click', saveDraft);
-  document.querySelector<HTMLButtonElement>('#load-draft')?.addEventListener('click', loadSelectedDraft);
   document.querySelector<HTMLButtonElement>('#run-sdk-preview')?.addEventListener('click', runSdkConfigPreview);
   document.querySelector('#config-rows')?.addEventListener('click', e => {
     const target = e.target as HTMLElement;
-    const compare = target.closest<HTMLButtonElement>('[data-config-compare]');
-    if (compare) { toggleConfigCompare(compare.dataset.configCompare || ''); return; }
     const button = target.closest<HTMLButtonElement>('[data-config-details]');
     if (button) toggleConfigDetails(button.dataset.configDetails || '');
   });
@@ -270,7 +256,7 @@ async function loadConfigs() {
   } catch (err: any) {
     const detail = err?.shortMessage ?? err?.message ?? String(err ?? 'Read failed');
     if (status) status.textContent = 'On-chain registry unavailable · ' + detail;
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty">${esc(detail)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">${esc(detail)}</td></tr>`;
     document.querySelector('#config-count')!.textContent = '—';
     // Keep RPC health separate from registry-read failures. The RPC can be online
     // and the V4 core verified even when a particular registry read times out.
@@ -288,7 +274,6 @@ async function loadConfigPage(startId: number) {
   if (configLoading) return;
   configLoading = true;
   const status = document.querySelector('#config-status');
-  renderConfigComparison();
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
   if (button) button.disabled = true;
   try {
@@ -385,7 +370,7 @@ type LaunchDraft = { id:string; name:string; symbol:string; supply:string; descr
 const DRAFTS_KEY = 'ammora-launchpad-studio:drafts:v1';
 function readDrafts(): LaunchDraft[] { try { const v=JSON.parse(localStorage.getItem(DRAFTS_KEY)||'[]'); return Array.isArray(v)?v:[]; } catch { return []; } }
 function refreshSavedDrafts(selected='') { const el=document.querySelector<HTMLSelectElement>('#saved-drafts'); if(!el)return; const ds=readDrafts(); el.innerHTML='<option value="">Choose a saved draft</option>'+ds.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name||'Untitled')+' · '+esc(d.symbol||'—')+'</option>').join(''); el.value=selected; }
-function refreshDraftConfigOptions(selected='') { const el=document.querySelector<HTMLSelectElement>('#draft-config'); if(!el)return; const list=[...configs,...lookupConfigs].filter((x,i,a)=>x.enabled&&x.configId!=='6'&&a.findIndex(y=>y.configId===x.configId)===i); el.innerHTML='<option value="">Select an enabled Config (review required)</option>'+list.map(x=>'<option value="'+esc(x.configId)+'">Config #'+esc(x.configId)+' · candidate only</option>').join(''); el.value=list.some(x=>x.configId===selected)?selected:''; }
+function refreshDraftConfigOptions(selected='') { const el=document.querySelector<HTMLSelectElement>('#draft-config'); const note=document.querySelector<HTMLDivElement>('#selected-config-note'); if(!el)return; const list=[...configs,...lookupConfigs].filter((x,i,a)=>x.enabled&&x.configId!=='6'&&Number(x.migrationMode)===0&&a.findIndex(y=>y.configId===x.configId)===i); const chosen=list.find(x=>x.configId===selected)??list[0]; el.innerHTML=chosen?'<option value="'+esc(chosen.configId)+'">Config #'+esc(chosen.configId)+'</option>':'<option value="">No eligible Config loaded</option>';el.value=chosen?.configId??'';if(note)note.textContent=chosen?'Automatic candidate: Config #'+chosen.configId+' · enabled + Concentrated mode. Not safety-certified.':'No eligible Config loaded yet.'; }
 function applyDraftTemplate() { const fixed=(document.querySelector<HTMLSelectElement>('#draft-template')!).value==='fixed'; const v=fixed?['Community Token','COMM','1000000000','A community-led token draft. Replace this description before use.']:['','','','']; (document.querySelector<HTMLInputElement>('#token-name')!).value=v[0]; (document.querySelector<HTMLInputElement>('#token-symbol')!).value=v[1]; (document.querySelector<HTMLInputElement>('#token-supply')!).value=v[2]; (document.querySelector<HTMLTextAreaElement>('#token-description')!).value=v[3]; (document.querySelector<HTMLSelectElement>('#draft-config')!).value=''; renderValidation([]); }
 function currentDraft():LaunchDraft { return {id:crypto.randomUUID(),name:(document.querySelector<HTMLInputElement>('#token-name')!).value.trim(),symbol:(document.querySelector<HTMLInputElement>('#token-symbol')!).value.trim().toUpperCase(),supply:(document.querySelector<HTMLInputElement>('#token-supply')!).value.trim(),description:(document.querySelector<HTMLTextAreaElement>('#token-description')!).value.trim(),configId:(document.querySelector<HTMLSelectElement>('#draft-config')!).value,updatedAt:new Date().toISOString()}; }
 function saveDraft() { const d=currentDraft(), a=readDrafts(), i=a.findIndex(x=>x.name===d.name&&x.symbol===d.symbol); if(i>=0){d.id=a[i].id;a[i]=d;}else a.unshift(d); try{localStorage.setItem(DRAFTS_KEY,JSON.stringify(a.slice(0,20)));refreshSavedDrafts(d.id);renderValidation(['Draft saved locally in this browser.']);}catch{renderValidation(['Could not save locally. Check browser storage settings.']);} }
@@ -560,7 +545,7 @@ function renderConfigs() {
       const detailRows = flattenConfigDetails(c.details).map(([key, value]) =>
         `<div class="config-detail-item"><span>${esc(key)}</span><code>${esc(value)}</code></div>`
       ).join('');
-      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td><td><button class="view-btn" type="button" data-config-compare="${esc(c.configId)}" ${!c.enabled || quarantined ? "disabled" : ""}>${compareConfigIds.includes(c.configId) ? "Selected ✓" : "Compare +"}</button></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="5"><div class="config-detail-grid">${renderConfigAnalysis(c)}<div class="config-detail-grid">${detailRows}</div></td></tr>`;
+      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="5"><div class="config-detail-grid">${renderConfigAnalysis(c)}<div class="config-detail-grid">${detailRows}</div></td></tr>`;
     }).join('');
   }
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
@@ -631,7 +616,4 @@ async function checkRpc() {
 }
 
 render();
-refreshSavedDrafts();
-refreshDraftConfigOptions();
-loadLaunches();
 checkRpc();
