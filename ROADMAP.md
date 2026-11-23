@@ -4,6 +4,7 @@
 Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91342), then add guided launch preparation. Keep the default path free and non-custodial.
 
 ## Current status (23 Nov 2026)
+- [x] Phase 3 second increment: compare up to two enabled Configs and surface rule-based review flags from loaded on-chain fields.
 - [x] Phase 3 first increment: local draft templates, browser-local draft save/load and basic field/Config validation.
 - [x] Verify SDK deployment catalog is GIWA Sepolia / Launch V4.
 - [x] Verify chain ID, finalized block and V4 core contracts through public RPC.
@@ -14,7 +15,7 @@ Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91
 - [x] Deploy the current search/filter release through GitHub Actions.
 - [x] Add direct lookup by Config ID so any registry entry can be inspected without paging through earlier entries.
 - [x] Add a structured Config risk report (fees, quote token, curve/segments, migration and graduation settings) using only fields verified in the SDK/on-chain response.
-- [ ] Add side-by-side Config comparison and safe/unsafe warnings.
+- [x] Add side-by-side Config comparison and explicit risk warnings.
 - [x] Add launch draft templates and parameter validation.
 - [ ] Add SDK preview / unsigned-plan generation, if supported by the installed SDK version.
 - [ ] Add optional wallet-assisted execution only after preview and explicit user approval; never store private keys or auto-submit.
