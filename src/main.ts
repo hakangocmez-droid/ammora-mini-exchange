@@ -87,6 +87,7 @@ function render() {
       </section>
       <section class="section-head"><div><div class="eyebrow">01 / ON-CHAIN REGISTRY</div><h2>Verified launch configs</h2><p>Read directly from Ammora's GIWA Sepolia V4 registry at one finalized block. No Data API dependency.</p></div><button id="refresh-configs" class="outline-btn">↻ Read on-chain</button></section>
       <section class="directory-panel">
+        <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="config-search" placeholder="Search loaded configs, owner or token address" /></div><select id="config-filter" class="config-filter" aria-label="Filter configs"><option value="all">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="quarantined">Quarantined</option></select></div>
         <div class="directory-toolbar"><span id="config-status" class="muted">Checking deployment and registry…</span><span id="config-block" class="muted"></span></div>
         <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
         <div class="directory-toolbar"><span id="config-page-status" class="muted">First 5 of the verified registry configs</span><button id="load-more-configs" class="outline-btn" disabled>Load next 5</button></div>
@@ -119,6 +120,8 @@ function bind() {
   document.querySelector('#refresh')?.addEventListener('click', loadLaunches);
   document.querySelector('#refresh-configs')?.addEventListener('click', loadConfigs);
   document.querySelector('#load-more-configs')?.addEventListener('click', loadMoreConfigs);
+  document.querySelector<HTMLInputElement>('#config-search')?.addEventListener('input', renderConfigs);
+  document.querySelector<HTMLSelectElement>('#config-filter')?.addEventListener('change', renderConfigs);
   document.querySelector('#config-rows')?.addEventListener('click', e => {
     const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-config-details]');
     if (button) toggleConfigDetails(button.dataset.configDetails || '');
@@ -326,22 +329,32 @@ function toggleConfigDetails(configId: string) {
 function renderConfigs() {
   const tbody = document.querySelector<HTMLTableSectionElement>('#config-rows');
   if (!tbody) return;
-  if (!configs.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No registered configs were found at the verified block.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = configs.map(c => {
+  const query = (document.querySelector<HTMLInputElement>('#config-search')?.value ?? '').trim().toLowerCase();
+  const filter = document.querySelector<HTMLSelectElement>('#config-filter')?.value ?? 'all';
+  const visible = configs.filter(c => {
     const quarantined = c.configId === '6';
-    const state = quarantined ? 'Quarantined · Do not use' : c.enabled ? 'Enabled' : 'Disabled';
-    const detailRows = flattenConfigDetails(c.details).map(([key, value]) =>
-      `<div class="config-detail-item"><span>${esc(key)}</span><code>${esc(value)}</code></div>`
-    ).join('');
-    return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="4"><div class="config-detail-grid">${detailRows}</div></td></tr>`;
-  }).join('');
+    const statusMatch = filter === 'all' || (filter === 'quarantined' && quarantined)
+      || (filter === 'enabled' && c.enabled && !quarantined)
+      || (filter === 'disabled' && !c.enabled && !quarantined);
+    const haystack = [c.configId, c.configHash, c.owner, c.feeClaimer, c.quoteToken].join(' ').toLowerCase();
+    return statusMatch && (!query || haystack.includes(query));
+  });
+  if (!visible.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">${configs.length ? 'No loaded configs match this search or filter. Load more configs to search the rest of the registry.' : 'No registered configs were found at the verified block.'}</td></tr>`;
+  } else {
+    tbody.innerHTML = visible.map(c => {
+      const quarantined = c.configId === '6';
+      const state = quarantined ? 'Quarantined · Do not use' : c.enabled ? 'Enabled' : 'Disabled';
+      const detailRows = flattenConfigDetails(c.details).map(([key, value]) =>
+        `<div class="config-detail-item"><span>${esc(key)}</span><code>${esc(value)}</code></div>`
+      ).join('');
+      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="4"><div class="config-detail-grid">${detailRows}</div></td></tr>`;
+    }).join('');
+  }
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
   if (button) button.disabled = configLoading || BigInt(configs.length) >= configTotal;
   const pageStatus = document.querySelector('#config-page-status');
-  if (pageStatus) pageStatus.textContent = `Showing ${configs.length} of ${configTotal} verified configs`;
+  if (pageStatus) pageStatus.textContent = `Showing ${visible.length} matching loaded configs · ${configs.length} of ${configTotal} loaded`;
 }
 
 async function connectWallet() {
