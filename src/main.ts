@@ -391,19 +391,19 @@ function renderConfigAnalysis(c: ConfigRow): string {
   const reduction = bps(cfg.feeReductionFactorBps);
   const periods = Number(cfg.feeNumberOfPeriods ?? 0);
   const frequency = Number(cfg.feePeriodFrequency ?? 0);
-  const scheduleKnown = Number.isFinite(feeStart) && Number.isFinite(reduction) && periods > 0 && frequency > 0;
-  const finalFee = Math.max(0, feeStart - reduction * periods);
+  const scheduleFieldsPresent = Number.isFinite(feeStart) && Number.isFinite(reduction) && periods > 0 && frequency > 0;
+  // Do not infer enum semantics from another protocol. Mode 1 remains unverified
+  // until Ammora's own SDK/contract source documents the exact behavior.
   const migration = Number(cfg.migrationMode) === 0 ? 'Concentrated (SDK guide)' : 'Mode ' + raw(cfg.migrationMode) + ' · verify enum';
   const creatorShare = bps(cfg.creatorShareOfNonProtocolBps);
   const partnerLocked = bps(cfg.liquidityDistribution?.partnerPermanentLockedBps);
   const creatorLocked = bps(cfg.liquidityDistribution?.creatorPermanentLockedBps);
   const warnings = [feeStart >= 15 ? 'High initial fee: review user impact.' : '', cfg.dynamicFeeEnabled ? '' : 'Dynamic fee is disabled.', cfg.rateLimiterEnabled ? '' : 'Rate limiter is disabled.', 'Graduation readiness is not proven by Config fields alone.', 'Quote-token decimals and policy must be verified independently.', 'Confirm fee scheduler enum and timing against SDK/contract source.'].filter(Boolean);
-  const points = [0, 1, Math.floor(periods / 2), periods].filter((v, i, a) => a.indexOf(v) === i);
-  const timeline = scheduleKnown ? points.map(n => '<span><b>' + (n === 0 ? 'Start' : (n * frequency) + 's') + '</b>' + Math.max(0, feeStart - reduction * n).toFixed(2) + '%</span>').join('') : '<span>Fee schedule data incomplete</span>';
+  const timeline = '<span><b>Mode ' + esc(raw(cfg.feeSchedulerMode)) + '</b>Semantics not verified</span>';
   return '<section class="config-analysis">' +
     '<div class="analysis-heading"><div><small>CONFIG INTELLIGENCE</small><h3>Config #' + esc(c.configId) + ' analysis</h3></div><span class="analysis-status">' + (c.enabled ? 'ENABLED · NOT SAFETY-CERTIFIED' : 'DISABLED') + '</span></div>' +
     '<div class="analysis-metrics"><article><small>INITIAL FEE</small><b>' + feeStart.toFixed(2) + '%</b></article><article><small>POST-MIGRATION FEE</small><b>' + bps(cfg.postMigrationFeeBps).toFixed(2) + '%</b></article><article><small>CREATOR SHARE*</small><b>' + creatorShare.toFixed(2) + '%</b></article><article><small>LP PERMANENT LOCK</small><b>' + (partnerLocked + creatorLocked).toFixed(2) + '%</b></article></div>' +
-    '<div class="analysis-columns"><div><h4>Fee schedule · illustrative</h4><p>' + (scheduleKnown ? reduction.toFixed(2) + ' percentage points per ' + frequency + 's · ' + periods + ' periods · estimated final ' + finalFee.toFixed(2) + '%' : 'Insufficient schedule fields.') + '</p><div class="fee-timeline">' + timeline + '</div><small class="analysis-foot">Assumes configured scheduler mode applies a linear reduction. Verify enum and exact boundary behavior before relying on timing.</small></div>' +
+    '<div class="analysis-columns"><div><h4>Fee schedule · not yet calculated</h4><p>' + (scheduleFieldsPresent ? 'Fields present: ' + periods + ' periods · ' + frequency + 's frequency · reduction factor ' + esc(raw(cfg.feeReductionFactorBps)) + ' bps.' : 'Fee schedule fields incomplete.') + '</p><div class="fee-timeline">' + timeline + '</div><small class="analysis-foot">No final fee or timing estimate is shown until Ammora SDK/contract semantics for this mode are verified.</small></div>' +
     '<div><h4>Graduation & LP</h4><p>Migration: <b>' + esc(migration) + '</b></p><p>Supply (raw): <code>' + esc(raw(cfg.totalSupply)) + '</code></p><p>Base threshold (raw): <code>' + esc(raw(cfg.migrationBaseThreshold)) + '</code></p><p>Quote threshold (raw): <code>' + esc(raw(cfg.migrationQuoteThreshold)) + '</code></p><p>Partner / Creator permanent lock: <b>' + partnerLocked.toFixed(2) + '% / ' + creatorLocked.toFixed(2) + '%</b></p></div></div>' +
     '<div class="analysis-warnings"><h4>Checks still required</h4><ul>' + warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>' +
     '<p class="analysis-foot">*Creator share is of the non-Protocol fee portion, not total trading volume. Owner: ' + esc(identity.owner ?? c.owner) + ' · Fee claimer: ' + esc(identity.feeClaimer ?? c.feeClaimer) + '</p></section>';
