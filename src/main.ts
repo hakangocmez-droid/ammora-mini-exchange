@@ -1,4 +1,4 @@
-import { AmmoraDataApiClient, giwaSepoliaAutoRouteDeployment, giwaSepoliaAutoRoute, resolveAmmoraFinalizedHead, verifyAmmoraV4CoreAtBlock, getAmmoraV4NextConfigId, getAmmoraV4ConfigAtBlock } from '@ammora-protocol/sdk';
+import { AmmoraDataApiClient, AmmoraV4MigrationMode, buildSingleSegmentCurve, assertAmmoraV4Config, concentratedDepositQuote, buildCreateAmmoraV4Config, giwaSepoliaAutoRouteDeployment, giwaSepoliaAutoRoute, resolveAmmoraFinalizedHead, verifyAmmoraV4CoreAtBlock, getAmmoraV4NextConfigId, getAmmoraV4ConfigAtBlock } from '@ammora-protocol/sdk';
 import { createPublicClient, custom, defineChain, http, type Transport } from 'viem';
 import './style.css';
 
@@ -112,6 +112,15 @@ function render() {
           <label>Project description<textarea id="token-description" maxlength="240" rows="3" placeholder="What is this project building?"></textarea></label>
           <div class="form-foot"><span>Local browser draft · no chain writes</span><div class="form-actions"><button id="save-draft" class="outline-btn" type="button">Save draft</button><button class="primary-btn" type="submit">Validate & preview ↗</button></div></div>
           <div id="draft-validation" class="validation-list" aria-live="polite"></div>
+          <div class="sdk-preview-panel">
+            <div class="form-title"><div><span>SDK 0.3.9 · READ-ONLY</span><h3>Config economics preview</h3></div><span class="draft-pill">NO TRANSACTION</span></div>
+            <p class="field-hint">Uses a loaded enabled Config as a template. Sale supply and quote threshold must be raw integer units using the template token and quote-token decimals.</p>
+            <div class="two-col"><label>Template Config ID<input id="preview-template-id" inputmode="numeric" placeholder="e.g. 72" /></label><label>Sale supply (raw units)<input id="preview-sale-supply" inputmode="numeric" placeholder="e.g. 1000000000000" /></label></div>
+            <div class="two-col"><label>Migration quote threshold (raw)<input id="preview-quote-threshold" inputmode="numeric" placeholder="e.g. 1000000000000000000" /></label><label>New Config owner address<input id="preview-owner" spellcheck="false" placeholder="0x..." /></label></div>
+            <button id="run-sdk-preview" class="primary-btn" type="button">Derive & validate with SDK ↗</button>
+            <div id="sdk-preview-status" class="validation-list" aria-live="polite"></div>
+            <pre id="sdk-preview-output" class="sdk-preview-output" hidden></pre>
+          </div>
           <div id="draft-output" class="draft-output" hidden></div>
         </form>
       </section>
@@ -136,6 +145,7 @@ function bind() {
   document.querySelector<HTMLSelectElement>('#draft-template')?.addEventListener('change', applyDraftTemplate);
   document.querySelector<HTMLButtonElement>('#save-draft')?.addEventListener('click', saveDraft);
   document.querySelector<HTMLButtonElement>('#load-draft')?.addEventListener('click', loadSelectedDraft);
+  document.querySelector<HTMLButtonElement>('#run-sdk-preview')?.addEventListener('click', runSdkConfigPreview);
   document.querySelector('#config-rows')?.addEventListener('click', e => {
     const target = e.target as HTMLElement;
     const compare = target.closest<HTMLButtonElement>('[data-config-compare]');
@@ -435,6 +445,48 @@ function renderConfigAnalysis(c: ConfigRow): string {
     '<div><h4>Graduation & LP</h4><p>Migration: <b>' + esc(migration) + '</b></p><p>Supply (raw): <code>' + esc(raw(cfg.totalSupply)) + '</code></p><p>Base threshold (raw): <code>' + esc(raw(cfg.migrationBaseThreshold)) + '</code></p><p>Quote threshold (raw): <code>' + esc(raw(cfg.migrationQuoteThreshold)) + '</code></p><p>Partner / Creator permanent lock: <b>' + partnerLocked.toFixed(2) + '% / ' + creatorLocked.toFixed(2) + '%</b></p></div></div>' +
     '<div class="analysis-warnings"><h4>Checks still required</h4><ul>' + warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>' +
     '<p class="analysis-foot">*Creator share is of the non-Protocol fee portion, not total trading volume. Owner: ' + esc(identity.owner ?? c.owner) + ' · Fee claimer: ' + esc(identity.feeClaimer ?? c.feeClaimer) + '</p></section>';
+}
+async function runSdkConfigPreview() {
+  const status=document.querySelector<HTMLDivElement>('#sdk-preview-status');
+  const output=document.querySelector<HTMLPreElement>('#sdk-preview-output');
+  if(status) status.textContent='Checking inputs and verified registry snapshot…';
+  if(output){output.hidden=true;output.textContent='';}
+  try {
+    const idText=(document.querySelector<HTMLInputElement>('#preview-template-id')!).value.trim();
+    const supplyText=(document.querySelector<HTMLInputElement>('#preview-sale-supply')!).value.trim();
+    const quoteText=(document.querySelector<HTMLInputElement>('#preview-quote-threshold')!).value.trim();
+    const owner=(document.querySelector<HTMLInputElement>('#preview-owner')!).value.trim();
+    if(!/^\\d+$/.test(idText)||BigInt(idText)<=0n) throw new Error('Enter a positive template Config ID.');
+    if(!/^\\d+$/.test(supplyText)||BigInt(supplyText)<=0n) throw new Error('Sale supply must be a positive raw integer.');
+    if(!/^\\d+$/.test(quoteText)||BigInt(quoteText)<=0n) throw new Error('Migration quote threshold must be a positive raw integer.');
+    if(!/^0x[0-9a-fA-F]{40}$/.test(owner)) throw new Error('Enter a valid 20-byte Config owner address.');
+    await ensureReadClient();
+    const id=BigInt(idText), registry=giwaSepoliaAutoRouteDeployment.contracts.launch.configRegistry;
+    const template:any=await withTimeout(getAmmoraV4ConfigAtBlock(publicClient!,registry,id,verifiedBlock!),18000,'Template Config read');
+    if(!template.enabled) throw new Error('Template Config is disabled.');
+    if(id===6n) throw new Error('Config #6 is quarantined and cannot be used.');
+    if(template.config.migrationMode!==AmmoraV4MigrationMode.Concentrated) throw new Error('This preview helper supports Concentrated migration mode only. Mode 1 requires a separately reviewed compounding policy.');
+    const saleSupply=BigInt(supplyText), migrationQuoteThreshold=BigInt(quoteText);
+    const curve=buildSingleSegmentCurve(template.config.startSqrtPrice,saleSupply,migrationQuoteThreshold);
+    const segment=curve[0];
+    if(!segment) throw new Error('SDK returned no curve segment.');
+    const range={sqrtPriceX64:segment.upperSqrtPrice,sqrtMinPriceX64:segment.lowerSqrtPrice,sqrtMaxPriceX64:segment.upperSqrtPrice*2n};
+    const quoteFee=migrationQuoteThreshold*BigInt(template.config.migrationQuoteFeeBps)/10000n;
+    const quoteAfterFee=migrationQuoteThreshold-quoteFee;
+    const destination=concentratedDepositQuote(range,{quoteAmount:quoteAfterFee});
+    const vesting=template.config.lockedBaseVesting;
+    const lockedBase=vesting.cliffUnlockAmount+vesting.amountPerPeriod*BigInt(vesting.numberOfPeriods);
+    const config={...template.config,totalSupply:saleSupply+destination.baseAmount+lockedBase,migrationQuoteThreshold,migrationBaseThreshold:destination.baseAmount,postMigrationSqrtMinPrice:range.sqrtMinPriceX64,postMigrationSqrtMaxPrice:range.sqrtMaxPriceX64,postMigrationLiquidity:destination.liquidity};
+    assertAmmoraV4Config(config,curve);
+    const deployment=giwaSepoliaAutoRouteDeployment.contracts.launch;
+    const transaction={to:registry,...buildCreateAmmoraV4Config(config,curve,owner as `0x${string}`)};
+    const json=(value:unknown)=>JSON.stringify(value,(_,v)=>typeof v==='bigint'?v.toString():v,2);
+    const preview={status:'SDK_VALIDATED_PREVIEW_ONLY',chainId:CHAIN_ID,blockNumber:verifiedBlock!.toString(),template:{configId:idText,configHash:template.configHash,enabled:template.enabled,tokenDecimals:String(template.config.tokenDecimals),quoteToken:template.config.quoteToken},owner,config,curve,economics:{saleAllocationRaw:saleSupply,grossMigrationBaseRaw:destination.baseAmount,grossMigrationQuoteRaw:destination.quoteAmount,migrationQuoteFeeRaw:quoteFee,quoteSurplusToProtocolRaw:quoteAfterFee-destination.quoteAmount,lockedBaseRaw:lockedBase,totalSupplyRaw:config.totalSupply},transaction:{to:transaction.to,data:transaction.data},notice:'Validated calldata preview only; not simulated, signed or sent. Template recipients, fee rules, vesting and LP policy are inherited. Independently verify graduation inventory and every economic assumption.'};
+    if(output){output.textContent=json(preview);output.hidden=false;}
+    if(status) status.textContent='SDK Config assertion passed · calldata derived · no simulation or transaction performed.';
+  } catch(err:any) {
+    if(status) status.textContent='Preview blocked · '+(err?.shortMessage??err?.message??String(err));
+  }
 }
 function findConfig(id:string):ConfigRow|undefined { return [...configs,...lookupConfigs].find(x=>x.configId===id); }
 function toggleConfigCompare(id:string) {
