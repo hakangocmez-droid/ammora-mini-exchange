@@ -65,3 +65,10 @@ Do the split incrementally after Explorer behavior is stable; avoid a risky full
 
 ## Definition of done
 The Explorer is complete when any Config can be fetched directly by ID, inspected, compared and risk-reviewed at a verified finalized block. The Studio is complete when a user can create and validate a launch draft and inspect an SDK preview without signing or sending a transaction. Any later execution feature remains opt-in, testnet-only and explicitly user-approved.
+
+
+## Simplification release
+- Removed the optional Data API launch feed and wallet-connect prompt from the default workflow.
+- Removed side-by-side comparison from the default registry view; direct Config lookup and on-chain details remain.
+- Automatically selects the first loaded enabled Config in Concentrated mode, excluding Config #6. This is a convenience candidate only, not a safety certification.
+- Collapsed raw-unit SDK economics inputs under an optional Advanced disclosure. The default draft path stays short.
