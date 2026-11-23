@@ -4,6 +4,7 @@
 Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91342), then add guided launch preparation. Keep the default path free and non-custodial.
 
 ## Current status (23 Nov 2026)
+- [x] Phase 3 third increment: SDK-backed Concentrated template preview with coupled curve/reserve/liquidity derivation and read-only calldata output.
 - [x] Phase 3 second increment: compare up to two enabled Configs and surface rule-based review flags from loaded on-chain fields.
 - [x] Phase 3 first increment: local draft templates, browser-local draft save/load and basic field/Config validation.
 - [x] Verify SDK deployment catalog is GIWA Sepolia / Launch V4.
@@ -17,7 +18,7 @@ Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91
 - [x] Add a structured Config risk report (fees, quote token, curve/segments, migration and graduation settings) using only fields verified in the SDK/on-chain response.
 - [x] Add side-by-side Config comparison and explicit risk warnings.
 - [x] Add launch draft templates and parameter validation.
-- [ ] Add SDK preview / unsigned-plan generation, if supported by the installed SDK version.
+- [x] Add SDK-validated read-only Config economics preview and unsigned calldata display for the documented Concentrated template path.
 - [ ] Add optional wallet-assisted execution only after preview and explicit user approval; never store private keys or auto-submit.
 
 ## Fast delivery sequence
@@ -35,8 +36,8 @@ Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91
 ### 3. Build the Launch Studio
 1. [x] Save editable local launch drafts and templates in browser storage.
 2. [x] Validate name, symbol, supply and selected enabled Config; exclude quarantined Config #6.
-3. [ ] Generate a read-only SDK preview / unsigned plan where the SDK supports it (Phase 4).
-4. [ ] Show required approvals and actions without signing or sending.
+3. [x] Derive Concentrated Config economics and validate with the public SDK; show unsigned calldata only.
+4. [ ] Add reviewed policy/recipient editing and full validation coverage. Phase 4 will expand preview/validation and user-facing explanation.
 
 ### 4. Test and release
 1. Run TypeScript/Vite production build after each change.
