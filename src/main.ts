@@ -311,7 +311,7 @@ async function loadConfigById() {
   const button = document.querySelector<HTMLButtonElement>('#lookup-config');
   const status = document.querySelector('#config-status');
   const rawId = input?.value.trim() ?? '';
-  if (!/^\\d+$/.test(rawId) || BigInt(rawId) < 1n || BigInt(rawId) > configTotal) {
+  if (!/^\d+$/.test(rawId) || BigInt(rawId) < 1n || BigInt(rawId) > configTotal) {
     if (status) status.textContent = `Enter a Config ID between 1 and ${configTotal.toString()}.`;
     return;
   }
