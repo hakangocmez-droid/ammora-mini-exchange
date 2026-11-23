@@ -34,6 +34,7 @@ function pacedHttp(url: string, intervalMs = 650): Transport {
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let allLaunches: LaunchRow[] = [];
 let configs: ConfigRow[] = [];
+let lookupConfigs: ConfigRow[] = [];
 let configTotal = 0n;
 let configPageSize = 5;
 let configLoading = false;
@@ -234,6 +235,7 @@ async function loadConfigs() {
     const nextId = await withTimeout(getAmmoraV4NextConfigId(publicClient!, registry, block), 15_000, 'Config count read');
     configTotal = nextId > 1n ? nextId - 1n : 0n;
     configs = [];
+    lookupConfigs = [];
     if (status) status.textContent = `Found ${configTotal} registered configs · loading first page…`;
     await loadConfigPage(1);
     document.querySelector('#config-count')!.textContent = String(configTotal);
@@ -327,7 +329,7 @@ async function loadConfigById() {
       `Config #${rawId} read`,
     );
     const row: ConfigRow = {
-      configId: String(entry.configId ?? rawId),
+      configId: rawId,
       enabled: Boolean(entry.enabled),
       configHash: String(entry.configHash ?? ''),
       owner: String(entry.identity?.owner ?? ''),
@@ -337,7 +339,7 @@ async function loadConfigById() {
       segments: Array.isArray(entry.segments) ? entry.segments.length : 0,
       details: { identity: entry.identity, config: entry.config, segments: entry.segments },
     };
-    configs = [row, ...configs.filter(c => c.configId !== row.configId)];
+    lookupConfigs = [row, ...lookupConfigs.filter(c => c.configId !== row.configId)];
     renderConfigs();
     const detailRow = document.querySelector<HTMLTableRowElement>(`#config-detail-${CSS.escape(row.configId)}`);
     if (detailRow) detailRow.hidden = false;
@@ -384,7 +386,7 @@ function renderConfigs() {
   if (!tbody) return;
   const query = (document.querySelector<HTMLInputElement>('#config-search')?.value ?? '').trim().toLowerCase();
   const filter = document.querySelector<HTMLSelectElement>('#config-filter')?.value ?? 'all';
-  const visible = configs.filter(c => {
+  const visible = [...configs, ...lookupConfigs].filter(c => {
     const quarantined = c.configId === '6';
     const statusMatch = filter === 'all' || (filter === 'quarantined' && quarantined)
       || (filter === 'enabled' && c.enabled && !quarantined)
@@ -407,7 +409,7 @@ function renderConfigs() {
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
   if (button) button.disabled = configLoading || BigInt(configs.length) >= configTotal;
   const pageStatus = document.querySelector('#config-page-status');
-  if (pageStatus) pageStatus.textContent = `Showing ${visible.length} matching loaded configs · ${configs.length} of ${configTotal} loaded`;
+  if (pageStatus) pageStatus.textContent = `Showing ${visible.length} matching configs · ${configs.length} of ${configTotal} paged configs loaded`;
 }
 
 async function connectWallet() {
