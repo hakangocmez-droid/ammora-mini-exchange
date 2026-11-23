@@ -35,6 +35,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 let allLaunches: LaunchRow[] = [];
 let configs: ConfigRow[] = [];
 let lookupConfigs: ConfigRow[] = [];
+let compareConfigIds: string[] = [];
 let configTotal = 0n;
 let configPageSize = 5;
 let configLoading = false;
@@ -91,7 +92,8 @@ function render() {
         <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="config-search" placeholder="Search loaded configs, owner or token address" /></div><select id="config-filter" class="config-filter" aria-label="Filter configs"><option value="all">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="quarantined">Quarantined</option></select></div>
         <div class="directory-toolbar"><div class="search-wrap"><span>#</span><input id="config-id-lookup" type="number" min="1" placeholder="Jump to any Config ID (e.g. 72)" /></div><button id="lookup-config" class="outline-btn">Lookup Config</button></div>
         <div class="directory-toolbar"><span id="config-status" class="muted">Checking deployment and registry…</span><span id="config-block" class="muted"></span></div>
-        <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th><th>COMPARE</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
+        <div id="config-comparison" class="comparison-panel"><p class="comparison-empty">Select up to two enabled Configs to compare their on-chain parameters and risk flags.</p></div>
         <div class="directory-toolbar"><span id="config-page-status" class="muted">First 5 of the verified registry configs</span><button id="load-more-configs" class="outline-btn" disabled>Load next 5</button></div>
       </section>
       <section class="section-head"><div><div class="eyebrow">02 / OPTIONAL INDEX</div><h2>Explore launches</h2><p>Indexed launch records from Ammora's Data API. This service is separate from the on-chain registry.</p></div><button id="refresh" class="outline-btn">↻ Refresh data</button></section>
@@ -135,7 +137,10 @@ function bind() {
   document.querySelector<HTMLButtonElement>('#save-draft')?.addEventListener('click', saveDraft);
   document.querySelector<HTMLButtonElement>('#load-draft')?.addEventListener('click', loadSelectedDraft);
   document.querySelector('#config-rows')?.addEventListener('click', e => {
-    const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-config-details]');
+    const target = e.target as HTMLElement;
+    const compare = target.closest<HTMLButtonElement>('[data-config-compare]');
+    if (compare) { toggleConfigCompare(compare.dataset.configCompare || ''); return; }
+    const button = target.closest<HTMLButtonElement>('[data-config-details]');
     if (button) toggleConfigDetails(button.dataset.configDetails || '');
   });
   document.querySelector<HTMLInputElement>('#search')?.addEventListener('input', e => renderRows((e.target as HTMLInputElement).value));
@@ -255,7 +260,7 @@ async function loadConfigs() {
   } catch (err: any) {
     const detail = err?.shortMessage ?? err?.message ?? String(err ?? 'Read failed');
     if (status) status.textContent = 'On-chain registry unavailable · ' + detail;
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty">${esc(detail)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty">${esc(detail)}</td></tr>`;
     document.querySelector('#config-count')!.textContent = '—';
     // Keep RPC health separate from registry-read failures. The RPC can be online
     // and the V4 core verified even when a particular registry read times out.
@@ -273,6 +278,7 @@ async function loadConfigPage(startId: number) {
   if (configLoading) return;
   configLoading = true;
   const status = document.querySelector('#config-status');
+  renderConfigComparison();
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
   if (button) button.disabled = true;
   try {
@@ -430,6 +436,56 @@ function renderConfigAnalysis(c: ConfigRow): string {
     '<div class="analysis-warnings"><h4>Checks still required</h4><ul>' + warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>' +
     '<p class="analysis-foot">*Creator share is of the non-Protocol fee portion, not total trading volume. Owner: ' + esc(identity.owner ?? c.owner) + ' · Fee claimer: ' + esc(identity.feeClaimer ?? c.feeClaimer) + '</p></section>';
 }
+function findConfig(id:string):ConfigRow|undefined { return [...configs,...lookupConfigs].find(x=>x.configId===id); }
+function toggleConfigCompare(id:string) {
+  const item=findConfig(id);
+  if(!item||!item.enabled||id==='6') return;
+  if(compareConfigIds.includes(id)) compareConfigIds=compareConfigIds.filter(x=>x!==id);
+  else if(compareConfigIds.length<2) compareConfigIds=[...compareConfigIds,id];
+  else { const panel=document.querySelector<HTMLDivElement>('#config-comparison'); if(panel) panel.innerHTML='<p class="comparison-empty">Only two Configs can be compared at once. Remove one selection first.</p>'; return; }
+  renderConfigs();
+}
+function configRiskFlags(c:ConfigRow):string[] {
+  const cfg=(c.details as any)?.config??{}, flags:string[]=[];
+  if(c.configId==='6') flags.push('Quarantined by protocol guidance — do not use.');
+  if(!c.enabled) flags.push('Config is disabled.');
+  if(Number(cfg.cliffFeeBps)>=1500) flags.push('Initial fee is at least 15%; review user impact.');
+  if(cfg.dynamicFeeEnabled!==true) flags.push('Dynamic fee is disabled.');
+  if(cfg.rateLimiterEnabled!==true) flags.push('Rate limiter is disabled.');
+  const partner=Number(cfg.liquidityDistribution?.partnerPermanentLockedBps??0), creator=Number(cfg.liquidityDistribution?.creatorPermanentLockedBps??0);
+  if(partner+creator!==10000) flags.push('Permanent LP lock fields do not sum to 100%; inspect vesting and remaining allocation.');
+  if(Number(cfg.migrationMode)!==0) flags.push('Migration mode is not confirmed as Concentrated by the available SDK guide.');
+  if(Number(cfg.feeSchedulerMode)===1) flags.push('Fee scheduler Mode 1 semantics remain unverified.');
+  if(!cfg.quoteToken) flags.push('Quote-token address is missing.');
+  flags.push('Enabled status is not a safety certification; graduation readiness requires independent checks.');
+  return flags;
+}
+function configCompareValue(c:ConfigRow,key:string):string {
+  const cfg=(c.details as any)?.config??{}, bps=(v:any)=>(Number(v??0)/100).toFixed(2)+'%';
+  const values:Record<string,string>={
+    'Initial fee':bps(cfg.cliffFeeBps),'Post-migration fee':bps(cfg.postMigrationFeeBps),
+    'Creator share of non-Protocol fees':bps(cfg.creatorShareOfNonProtocolBps),
+    'Partner permanent LP lock':bps(cfg.liquidityDistribution?.partnerPermanentLockedBps),
+    'Creator permanent LP lock':bps(cfg.liquidityDistribution?.creatorPermanentLockedBps),
+    'Dynamic fee':String(cfg.dynamicFeeEnabled??'Not supplied'),'Rate limiter':String(cfg.rateLimiterEnabled??'Not supplied'),
+    'Fee scheduler mode':String(cfg.feeSchedulerMode??'Not supplied'),
+    'Migration mode':Number(cfg.migrationMode)===0?'0 · Concentrated (SDK guide)':String(cfg.migrationMode??'Not supplied'),
+    'Quote token':c.quoteToken||'Not supplied','Segments':String(c.segments),
+    'Enabled':String(c.enabled)
+  };
+  return values[key]??'—';
+}
+function renderConfigComparison() {
+  const panel=document.querySelector<HTMLDivElement>('#config-comparison'); if(!panel)return;
+  const selected=compareConfigIds.map(findConfig).filter((x):x is ConfigRow=>Boolean(x));
+  if(!selected.length){panel.innerHTML='<p class="comparison-empty">Select up to two enabled Configs to compare their on-chain parameters and risk flags.</p>';return;}
+  const fields=['Initial fee','Post-migration fee','Creator share of non-Protocol fees','Partner permanent LP lock','Creator permanent LP lock','Dynamic fee','Rate limiter','Fee scheduler mode','Migration mode','Quote token','Segments','Enabled'];
+  panel.innerHTML='<div class="comparison-head"><div><span class="eyebrow">CONFIG COMPARISON</span><h3>Side-by-side review</h3><small>On-chain values only · not a safety certification</small></div><button type="button" class="outline-btn" id="clear-config-compare">Clear selection</button></div>'+
+    '<div class="comparison-table"><div class="comparison-row comparison-label"><b>Parameter</b>'+selected.map(x=>'<b>Config #'+esc(x.configId)+'</b>').join('')+'</div>'+
+    fields.map(field=>'<div class="comparison-row"><span>'+esc(field)+'</span>'+selected.map(x=>'<code>'+esc(configCompareValue(x,field))+'</code>').join('')+'</div>').join('')+'</div>'+
+    '<div class="risk-columns">'+selected.map(x=>'<section><h4>Config #'+esc(x.configId)+' · Review flags</h4><ul>'+configRiskFlags(x).map(flag=>'<li>'+esc(flag)+'</li>').join('')+'</ul></section>').join('')+'</div>';
+  panel.querySelector('#clear-config-compare')?.addEventListener('click',()=>{compareConfigIds=[];renderConfigs();});
+}
 function renderConfigs() {
   const tbody = document.querySelector<HTMLTableSectionElement>('#config-rows');
   if (!tbody) return;
@@ -452,7 +508,7 @@ function renderConfigs() {
       const detailRows = flattenConfigDetails(c.details).map(([key, value]) =>
         `<div class="config-detail-item"><span>${esc(key)}</span><code>${esc(value)}</code></div>`
       ).join('');
-      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="4"><div class="config-detail-grid">${renderConfigAnalysis(c)}<div class="config-detail-grid">${detailRows}</div></td></tr>`;
+      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td><td><button class="view-btn" type="button" data-config-compare="${esc(c.configId)}" ${!c.enabled || quarantined ? "disabled" : ""}>${compareConfigIds.includes(c.configId) ? "Selected ✓" : "Compare +"}</button></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="5"><div class="config-detail-grid">${renderConfigAnalysis(c)}<div class="config-detail-grid">${detailRows}</div></td></tr>`;
     }).join('');
   }
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
