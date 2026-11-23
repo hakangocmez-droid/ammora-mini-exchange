@@ -139,7 +139,7 @@ function bind() {
     const symbol = (document.querySelector<HTMLInputElement>('#token-symbol')!).value.trim().toUpperCase();
     const supply = (document.querySelector<HTMLInputElement>('#token-supply')!).value.trim();
     const desc = (document.querySelector<HTMLTextAreaElement>('#token-description')!).value.trim();
-    if (!name || !symbol || !/^\\d+$/.test(supply) || BigInt(supply) <= 0n) { alert('Enter a token name, symbol and a positive whole-number supply.'); return; }
+    if (!name || !symbol || !/^\d+$/.test(supply) || BigInt(supply) <= 0n) { alert('Enter a token name, symbol and a positive whole-number supply.'); return; }
     const out = document.querySelector<HTMLDivElement>('#draft-output')!;
     out.hidden = false;
     out.innerHTML = `<div class="draft-label">LOCAL PREVIEW · NOT DEPLOYED</div><h4>${esc(name)} <span>${esc(symbol)}</span></h4><p>Total supply: <b>${BigInt(supply).toLocaleString('en-US')}</b></p><p>${esc(desc || 'No description provided.')}</p><small>This is a local brief only. No token or on-chain launch has been created.</small>`;
