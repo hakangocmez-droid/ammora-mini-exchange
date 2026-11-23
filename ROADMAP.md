@@ -4,6 +4,7 @@
 Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91342), then add guided launch preparation. Keep the default path free and non-custodial.
 
 ## Current status (23 Nov 2026)
+- [x] Phase 3 first increment: local draft templates, browser-local draft save/load and basic field/Config validation.
 - [x] Verify SDK deployment catalog is GIWA Sepolia / Launch V4.
 - [x] Verify chain ID, finalized block and V4 core contracts through public RPC.
 - [x] Read Config Registry directly on-chain; optional Data API failure does not block the registry.
@@ -11,10 +12,10 @@ Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91
 - [x] Search loaded Configs and filter enabled / disabled / quarantined states.
 - [x] Explicitly quarantine Config #6 in the UI.
 - [x] Deploy the current search/filter release through GitHub Actions.
-- [ ] Add direct lookup by Config ID so any registry entry can be inspected without paging through earlier entries.
-- [ ] Add a structured Config risk report (fees, quote token, curve/segments, migration and graduation settings) using only fields verified in the SDK/on-chain response.
+- [x] Add direct lookup by Config ID so any registry entry can be inspected without paging through earlier entries.
+- [x] Add a structured Config risk report (fees, quote token, curve/segments, migration and graduation settings) using only fields verified in the SDK/on-chain response.
 - [ ] Add side-by-side Config comparison and safe/unsafe warnings.
-- [ ] Add launch draft templates and parameter validation.
+- [x] Add launch draft templates and parameter validation.
 - [ ] Add SDK preview / unsigned-plan generation, if supported by the installed SDK version.
 - [ ] Add optional wallet-assisted execution only after preview and explicit user approval; never store private keys or auto-submit.
 
@@ -31,10 +32,10 @@ Deliver a reliable, read-first launchpad workspace for GIWA Sepolia (chain ID 91
 3. Keep Config #6 quarantined. An enabled flag alone is not a safety assessment; Config #10 is not an automatic replacement.
 
 ### 3. Build the Launch Studio
-1. Save editable local launch drafts and templates.
-2. Validate name, symbol, supply and Config parameters.
-3. Generate a read-only SDK preview / unsigned plan where the SDK supports it.
-4. Show required approvals and actions without signing or sending.
+1. [x] Save editable local launch drafts and templates in browser storage.
+2. [x] Validate name, symbol, supply and selected enabled Config; exclude quarantined Config #6.
+3. [ ] Generate a read-only SDK preview / unsigned plan where the SDK supports it (Phase 4).
+4. [ ] Show required approvals and actions without signing or sending.
 
 ### 4. Test and release
 1. Run TypeScript/Vite production build after each change.
