@@ -88,6 +88,7 @@ function render() {
       <section class="section-head"><div><div class="eyebrow">01 / ON-CHAIN REGISTRY</div><h2>Verified launch configs</h2><p>Read directly from Ammora's GIWA Sepolia V4 registry at one finalized block. No Data API dependency.</p></div><button id="refresh-configs" class="outline-btn">↻ Read on-chain</button></section>
       <section class="directory-panel">
         <div class="directory-toolbar"><div class="search-wrap"><span>⌕</span><input id="config-search" placeholder="Search loaded configs, owner or token address" /></div><select id="config-filter" class="config-filter" aria-label="Filter configs"><option value="all">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="quarantined">Quarantined</option></select></div>
+        <div class="directory-toolbar"><div class="search-wrap"><span>#</span><input id="config-id-lookup" type="number" min="1" placeholder="Jump to any Config ID (e.g. 72)" /></div><button id="lookup-config" class="outline-btn">Lookup Config</button></div>
         <div class="directory-toolbar"><span id="config-status" class="muted">Checking deployment and registry…</span><span id="config-block" class="muted"></span></div>
         <div class="table-wrap"><table><thead><tr><th>CONFIG</th><th>QUOTE TOKEN</th><th>OWNER</th><th>STATUS</th></tr></thead><tbody id="config-rows"><tr><td colspan="4" class="empty">Verifying GIWA deployment…</td></tr></tbody></table></div>
         <div class="directory-toolbar"><span id="config-page-status" class="muted">First 5 of the verified registry configs</span><button id="load-more-configs" class="outline-btn" disabled>Load next 5</button></div>
@@ -120,6 +121,10 @@ function bind() {
   document.querySelector('#refresh')?.addEventListener('click', loadLaunches);
   document.querySelector('#refresh-configs')?.addEventListener('click', loadConfigs);
   document.querySelector('#load-more-configs')?.addEventListener('click', loadMoreConfigs);
+  document.querySelector('#lookup-config')?.addEventListener('click', loadConfigById);
+  document.querySelector<HTMLInputElement>('#config-id-lookup')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); loadConfigById(); }
+  });
   document.querySelector<HTMLInputElement>('#config-search')?.addEventListener('input', renderConfigs);
   document.querySelector<HTMLSelectElement>('#config-filter')?.addEventListener('change', renderConfigs);
   document.querySelector('#config-rows')?.addEventListener('click', e => {
@@ -297,6 +302,54 @@ async function loadConfigPage(startId: number) {
 async function loadMoreConfigs() {
   if (BigInt(configs.length) >= configTotal) return;
   await loadConfigPage(configs.length + 1);
+}
+
+async function loadConfigById() {
+  const input = document.querySelector<HTMLInputElement>('#config-id-lookup');
+  const button = document.querySelector<HTMLButtonElement>('#lookup-config');
+  const status = document.querySelector('#config-status');
+  const rawId = input?.value.trim() ?? '';
+  if (!/^\\d+$/.test(rawId) || BigInt(rawId) < 1n || BigInt(rawId) > configTotal) {
+    if (status) status.textContent = `Enter a Config ID between 1 and ${configTotal.toString()}.`;
+    return;
+  }
+  if (configLoading) return;
+  configLoading = true;
+  if (button) button.disabled = true;
+  try {
+    await ensureReadClient();
+    const id = BigInt(rawId);
+    if (status) status.textContent = `Reading Config #${rawId} at verified block…`;
+    const registry = giwaSepoliaAutoRouteDeployment.contracts.launch.configRegistry;
+    const entry: any = await withTimeout(
+      getAmmoraV4ConfigAtBlock(publicClient!, registry, id, verifiedBlock!),
+      18_000,
+      `Config #${rawId} read`,
+    );
+    const row: ConfigRow = {
+      configId: String(entry.configId ?? rawId),
+      enabled: Boolean(entry.enabled),
+      configHash: String(entry.configHash ?? ''),
+      owner: String(entry.identity?.owner ?? ''),
+      feeClaimer: String(entry.identity?.feeClaimer ?? ''),
+      quoteToken: String(entry.config?.quoteToken ?? ''),
+      migrationMode: String(entry.config?.migrationMode ?? ''),
+      segments: Array.isArray(entry.segments) ? entry.segments.length : 0,
+      details: { identity: entry.identity, config: entry.config, segments: entry.segments },
+    };
+    configs = [row, ...configs.filter(c => c.configId !== row.configId)];
+    renderConfigs();
+    const detailRow = document.querySelector<HTMLTableRowElement>(`#config-detail-${CSS.escape(row.configId)}`);
+    if (detailRow) detailRow.hidden = false;
+    const detailButton = document.querySelector<HTMLButtonElement>(`[data-config-details="${CSS.escape(row.configId)}"]`);
+    if (detailButton) detailButton.textContent = 'Hide −';
+    if (status) status.textContent = `Config #${rawId} loaded directly · verified block ${verifiedBlock!.toString()}`;
+  } catch (err: any) {
+    if (status) status.textContent = `Config #${rawId} lookup failed · ${err?.shortMessage ?? err?.message ?? 'Read error'}`;
+  } finally {
+    configLoading = false;
+    if (button) button.disabled = false;
+  }
 }
 
 function flattenConfigDetails(value: unknown, prefix = ''): Array<[string, string]> {
