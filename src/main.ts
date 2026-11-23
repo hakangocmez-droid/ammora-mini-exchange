@@ -101,9 +101,9 @@ function render() {
           <div class="form-title"><div><span>NEW LAUNCH</span><h3>Configuration draft</h3></div><span class="draft-pill">LOCAL DRAFT</span></div>
           <label>Token name<input id="token-name" maxlength="32" placeholder="e.g. Aurora Protocol" required /></label>
           <div class="two-col"><label>Token symbol<input id="token-symbol" maxlength="10" placeholder="AURA" required /></label><label>Token supply<input id="token-supply" inputmode="numeric" placeholder="1000000000" required /></label></div>
-          <div class="selected-config-note" id="selected-config-note">Waiting for registry…</div><select id="draft-config" hidden><option value="">No eligible Config</option></select><label hidden>Registry Config<select id="draft-config-unused"><option value="">Load configs first · choose an enabled Config</option></select><small class="field-hint">Config #6 is permanently excluded. Enabled does not mean safety-certified; review the full on-chain details before using a Config.</small></label>
+          <div class="selected-config-note" id="selected-config-note">Waiting for registry…</div><select id="draft-config" hidden><option value="">No eligible Config</option></select>
           <label>Project description<textarea id="token-description" maxlength="240" rows="3" placeholder="What is this project building?"></textarea></label>
-          <div class="form-foot"><span>Local browser draft · no chain writes</span><div class="form-actions"><button id="save-draft" class="outline-btn" type="button">Save draft</button><button class="primary-btn" type="submit">Validate & preview ↗</button></div></div>
+          <div class="form-foot"><span>Local draft · no chain writes</span><button class="primary-btn" type="submit">Create draft preview ↗</button></div>
           <div id="draft-validation" class="validation-list" aria-live="polite"></div>
           <details class="sdk-preview-panel"><summary>Advanced · SDK economics preview (optional)</summary>
             <div class="form-title"><div><span>SDK 0.3.9 · READ-ONLY</span><h3>Config economics preview</h3></div><span class="draft-pill">NO TRANSACTION</span></div>
@@ -545,7 +545,7 @@ function renderConfigs() {
       const detailRows = flattenConfigDetails(c.details).map(([key, value]) =>
         `<div class="config-detail-item"><span>${esc(key)}</span><code>${esc(value)}</code></div>`
       ).join('');
-      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="5"><div class="config-detail-grid">${renderConfigAnalysis(c)}<div class="config-detail-grid">${detailRows}</div></td></tr>`;
+      return `<tr><td><b>#${esc(c.configId)}</b><small class="mono">${esc(c.configHash.slice(0, 14))}…</small><button class="view-btn" type="button" data-config-details="${esc(c.configId)}">Details +</button></td><td class="mono">${esc(short(c.quoteToken))}</td><td class="mono">${esc(short(c.owner))}</td><td><span class="stage">${state}</span></td></tr><tr id="config-detail-${esc(c.configId)}" hidden><td colspan="4"><div class="config-detail-grid">${renderConfigAnalysis(c)}<div class="config-detail-grid">${detailRows}</div></td></tr>`;
     }).join('');
   }
   const button = document.querySelector<HTMLButtonElement>('#load-more-configs');
