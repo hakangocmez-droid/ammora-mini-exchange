@@ -103,10 +103,13 @@ function render() {
         <div class="builder-intro"><div class="eyebrow">03 / LAUNCH CONFIGURATOR</div><h2>Shape your<br><em>next launch.</em></h2><p>Draft a launch brief and review the parameters before any wallet action. This release does not submit transactions or spend test ETH.</p><div class="safety-note"><span>◎</span><div><b>Safe by default</b><small>No private keys, approvals or transactions are requested by this configurator.</small></div></div><div class="policy-note"><b>Protocol safety notice</b><small>Do not reuse the quarantined GIWA Registry Config #6. Select only an enabled config after reviewing its on-chain parameters and protocol guidance.</small></div></div>
         <form id="launch-form" class="form-panel">
           <div class="form-title"><div><span>NEW LAUNCH</span><h3>Configuration draft</h3></div><span class="draft-pill">LOCAL DRAFT</span></div>
+          <div class="studio-toolbar"><label>Load template<select id="draft-template"><option value="blank">Blank launch draft</option><option value="fixed">Fixed-supply community token</option></select></label><label>Saved drafts<select id="saved-drafts"><option value="">Choose a saved draft</option></select></label><button id="load-draft" class="outline-btn" type="button">Load</button></div>
           <label>Token name<input id="token-name" maxlength="32" placeholder="e.g. Aurora Protocol" required /></label>
           <div class="two-col"><label>Token symbol<input id="token-symbol" maxlength="10" placeholder="AURA" required /></label><label>Token supply<input id="token-supply" inputmode="numeric" placeholder="1000000000" required /></label></div>
+          <label>Registry Config<select id="draft-config"><option value="">Load configs first · choose an enabled Config</option></select><small class="field-hint">Config #6 is permanently excluded. Enabled does not mean safety-certified; review the full on-chain details before using a Config.</small></label>
           <label>Project description<textarea id="token-description" maxlength="240" rows="3" placeholder="What is this project building?"></textarea></label>
-          <div class="form-foot"><span>Preview only · Stored in this browser session</span><button class="primary-btn" type="submit">Preview launch brief ↗</button></div>
+          <div class="form-foot"><span>Local browser draft · no chain writes</span><div class="form-actions"><button id="save-draft" class="outline-btn" type="button">Save draft</button><button class="primary-btn" type="submit">Validate & preview ↗</button></div></div>
+          <div id="draft-validation" class="validation-list" aria-live="polite"></div>
           <div id="draft-output" class="draft-output" hidden></div>
         </form>
       </section>
@@ -128,6 +131,9 @@ function bind() {
   });
   document.querySelector<HTMLInputElement>('#config-search')?.addEventListener('input', renderConfigs);
   document.querySelector<HTMLSelectElement>('#config-filter')?.addEventListener('change', renderConfigs);
+  document.querySelector<HTMLSelectElement>('#draft-template')?.addEventListener('change', applyDraftTemplate);
+  document.querySelector<HTMLButtonElement>('#save-draft')?.addEventListener('click', saveDraft);
+  document.querySelector<HTMLButtonElement>('#load-draft')?.addEventListener('click', loadSelectedDraft);
   document.querySelector('#config-rows')?.addEventListener('click', e => {
     const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-config-details]');
     if (button) toggleConfigDetails(button.dataset.configDetails || '');
@@ -139,10 +145,13 @@ function bind() {
     const symbol = (document.querySelector<HTMLInputElement>('#token-symbol')!).value.trim().toUpperCase();
     const supply = (document.querySelector<HTMLInputElement>('#token-supply')!).value.trim();
     const desc = (document.querySelector<HTMLTextAreaElement>('#token-description')!).value.trim();
-    if (!name || !symbol || !/^\d+$/.test(supply) || BigInt(supply) <= 0n) { alert('Enter a token name, symbol and a positive whole-number supply.'); return; }
+    const validation = validateLaunchDraft({name, symbol, supply, configId:(document.querySelector<HTMLSelectElement>('#draft-config')!).value});
+    renderValidation(validation);
+    if (validation.length) return;
     const out = document.querySelector<HTMLDivElement>('#draft-output')!;
     out.hidden = false;
-    out.innerHTML = `<div class="draft-label">LOCAL PREVIEW · NOT DEPLOYED</div><h4>${esc(name)} <span>${esc(symbol)}</span></h4><p>Total supply: <b>${BigInt(supply).toLocaleString('en-US')}</b></p><p>${esc(desc || 'No description provided.')}</p><small>This is a local brief only. No token or on-chain launch has been created.</small>`;
+    const configId = (document.querySelector<HTMLSelectElement>('#draft-config')!).value;
+    out.innerHTML = '<div class="draft-label">VALIDATED LOCAL DRAFT · NOT DEPLOYED</div><h4>' + esc(name) + ' <span>' + esc(symbol) + '</span></h4><p>Total supply: <b>' + BigInt(supply).toLocaleString('en-US') + '</b></p><p>Registry Config: <b>#' + esc(configId) + '</b> · enabled, not safety-certified</p><p>' + esc(desc || 'No description provided.') + '</p><small>Validation checks draft completeness only. No SDK launch preview, token creation or on-chain action has been performed.</small>';
     out.scrollIntoView({behavior:'smooth', block:'nearest'});
   });
 }
@@ -290,6 +299,7 @@ async function loadConfigPage(startId: number) {
       });
     }
     renderConfigs();
+    refreshDraftConfigOptions();
     if (status) status.textContent = `Verified V4 registry · showing ${configs.length} of ${configTotal} configs`;
     const pageStatus = document.querySelector('#config-page-status');
     if (pageStatus) pageStatus.textContent = `Showing ${configs.length} of ${configTotal} verified configs`;
@@ -341,6 +351,7 @@ async function loadConfigById() {
     };
     lookupConfigs = [row, ...lookupConfigs.filter(c => c.configId !== row.configId)];
     renderConfigs();
+    refreshDraftConfigOptions();
     const detailRow = document.querySelector<HTMLTableRowElement>(`#config-detail-${CSS.escape(row.configId)}`);
     if (detailRow) detailRow.hidden = false;
     const detailButton = document.querySelector<HTMLButtonElement>(`[data-config-details="${CSS.escape(row.configId)}"]`);
@@ -354,6 +365,17 @@ async function loadConfigById() {
   }
 }
 
+type LaunchDraft = { id:string; name:string; symbol:string; supply:string; description:string; configId:string; updatedAt:string };
+const DRAFTS_KEY = 'ammora-launchpad-studio:drafts:v1';
+function readDrafts(): LaunchDraft[] { try { const v=JSON.parse(localStorage.getItem(DRAFTS_KEY)||'[]'); return Array.isArray(v)?v:[]; } catch { return []; } }
+function refreshSavedDrafts(selected='') { const el=document.querySelector<HTMLSelectElement>('#saved-drafts'); if(!el)return; const ds=readDrafts(); el.innerHTML='<option value="">Choose a saved draft</option>'+ds.map(d=>'<option value="'+esc(d.id)+'">'+esc(d.name||'Untitled')+' · '+esc(d.symbol||'—')+'</option>').join(''); el.value=selected; }
+function refreshDraftConfigOptions(selected='') { const el=document.querySelector<HTMLSelectElement>('#draft-config'); if(!el)return; const list=[...configs,...lookupConfigs].filter((x,i,a)=>x.enabled&&x.configId!=='6'&&a.findIndex(y=>y.configId===x.configId)===i); el.innerHTML='<option value="">Select an enabled Config (review required)</option>'+list.map(x=>'<option value="'+esc(x.configId)+'">Config #'+esc(x.configId)+' · candidate only</option>').join(''); el.value=list.some(x=>x.configId===selected)?selected:''; }
+function applyDraftTemplate() { const fixed=(document.querySelector<HTMLSelectElement>('#draft-template')!).value==='fixed'; const v=fixed?['Community Token','COMM','1000000000','A community-led token draft. Replace this description before use.']:['','','','']; (document.querySelector<HTMLInputElement>('#token-name')!).value=v[0]; (document.querySelector<HTMLInputElement>('#token-symbol')!).value=v[1]; (document.querySelector<HTMLInputElement>('#token-supply')!).value=v[2]; (document.querySelector<HTMLTextAreaElement>('#token-description')!).value=v[3]; (document.querySelector<HTMLSelectElement>('#draft-config')!).value=''; renderValidation([]); }
+function currentDraft():LaunchDraft { return {id:crypto.randomUUID(),name:(document.querySelector<HTMLInputElement>('#token-name')!).value.trim(),symbol:(document.querySelector<HTMLInputElement>('#token-symbol')!).value.trim().toUpperCase(),supply:(document.querySelector<HTMLInputElement>('#token-supply')!).value.trim(),description:(document.querySelector<HTMLTextAreaElement>('#token-description')!).value.trim(),configId:(document.querySelector<HTMLSelectElement>('#draft-config')!).value,updatedAt:new Date().toISOString()}; }
+function saveDraft() { const d=currentDraft(), a=readDrafts(), i=a.findIndex(x=>x.name===d.name&&x.symbol===d.symbol); if(i>=0){d.id=a[i].id;a[i]=d;}else a.unshift(d); try{localStorage.setItem(DRAFTS_KEY,JSON.stringify(a.slice(0,20)));refreshSavedDrafts(d.id);renderValidation(['Draft saved locally in this browser.']);}catch{renderValidation(['Could not save locally. Check browser storage settings.']);} }
+function loadSelectedDraft() { const id=(document.querySelector<HTMLSelectElement>('#saved-drafts')!).value,d=readDrafts().find(x=>x.id===id);if(!d){renderValidation(['Choose a saved draft first.']);return;}(document.querySelector<HTMLInputElement>('#token-name')!).value=d.name;(document.querySelector<HTMLInputElement>('#token-symbol')!).value=d.symbol;(document.querySelector<HTMLInputElement>('#token-supply')!).value=d.supply;(document.querySelector<HTMLTextAreaElement>('#token-description')!).value=d.description;refreshDraftConfigOptions(d.configId);renderValidation(['Draft loaded. Recheck Config availability and all parameters before preview.']);}
+function validateLaunchDraft(d:{name:string;symbol:string;supply:string;configId:string}):string[] { const a:string[]=[];if(d.name.length<2||d.name.length>32)a.push('Token name must contain 2–32 characters.');if(!/^[A-Z0-9]{2,10}$/.test(d.symbol))a.push('Symbol must be 2–10 uppercase letters or numbers.');if(!/^\d+$/.test(d.supply)||BigInt(d.supply||'0')<=0n||BigInt(d.supply||'0')>(2n**256n-1n))a.push('Supply must be a positive whole number within uint256.');if(!d.configId)a.push('Select an enabled Registry Config.');else if(d.configId==='6')a.push('Config #6 is quarantined and cannot be selected.');else if(![...configs,...lookupConfigs].some(x=>x.configId===d.configId&&x.enabled))a.push('Selected Config is not loaded and verified as enabled. Load it from the registry first.');return a;}
+function renderValidation(items:string[]) { const el=document.querySelector<HTMLDivElement>('#draft-validation');if(!el)return;el.innerHTML=items.length?'<ul>'+items.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'';el.classList.toggle('has-errors',items.some(x=>!x.startsWith('Draft saved')&&!x.startsWith('Draft loaded')));}
 function flattenConfigDetails(value: unknown, prefix = ''): Array<[string, string]> {
   if (value === null || value === undefined) return [[prefix || 'value', '—']];
   if (typeof value === 'bigint') return [[prefix || 'value', value.toString()]];
@@ -501,5 +523,7 @@ async function checkRpc() {
 }
 
 render();
+refreshSavedDrafts();
+refreshDraftConfigOptions();
 loadLaunches();
 checkRpc();
